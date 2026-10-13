@@ -56,13 +56,13 @@
       <div class="nav-label">MONITOR</div>
       <nav class="main-nav">
         <button class="nav-item active" data-page="overview"><span class="nav-icon">▦</span> Overview</button>
-        <button class="nav-item" data-page="cameras"><span class="nav-icon">▣</span> Cameras <span class="nav-count">4</span></button>
+        <button class="nav-item" data-page="cameras"><span class="nav-icon">▣</span> Connect CCTV <span class="nav-count" id="cameraNavCount">0</span></button>
+        <button class="nav-item" data-page="knownpeople"><span class="nav-icon">♙</span> Known people</button>
         <button class="nav-item" data-page="events"><span class="nav-icon">◷</span> Events & timeline <span class="nav-count alert-count">3</span></button>
         <button class="nav-item" data-page="recordings"><span class="nav-icon">▶</span> Recording archive</button>
       </nav>
       <div class="nav-label">PREFERENCES</div>
       <nav class="main-nav">
-        <button class="nav-item" data-page="knownpeople"><span class="nav-icon">♙</span> Known people</button>
         <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span> Settings</button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -113,10 +113,13 @@
         </section>
 
         <section id="page-cameras" class="page">
-          <div class="page-heading"><div><div class="eyebrow">MONITORING</div><h1>Your cameras<span class="heading-period">.</span></h1><p>Manage camera status and access footage from each monitored area.</p></div><button class="primary-btn" id="addCameraBtn">＋ Add camera</button></div>
-          <div class="filter-row"><div class="search-wrap"><span>⌕</span><input id="cameraSearch" placeholder="Search cameras..." /></div><div class="filter-pills"><button class="filter-pill active" data-camera-filter="all">All cameras <span>4</span></button><button class="filter-pill" data-camera-filter="online">Online <span>4</span></button><button class="filter-pill" data-camera-filter="offline">Offline <span>0</span></button></div></div>
+          <div class="page-heading"><div><div class="eyebrow">CAMERA MANAGEMENT</div><h1>Connect CCTV<span class="heading-period">.</span></h1><p>Connect existing cameras and organize them across your home, office, shop, or other sites.</p></div><button class="primary-btn" id="addCameraBtn">＋ Add CCTV</button></div>
+          <div class="connect-intro"><div class="connect-intro-icon">⌂</div><div><strong id="cameraWelcomeTitle">Your security workspace</strong><p id="cameraWelcomeText">Manage all your camera locations in one place.</p></div><span class="connect-intro-badge">MULTI-SITE READY</span></div>
+          <div class="site-toolbar"><div><h2>Your locations</h2><p>Keep home and business cameras separate and easy to manage.</p></div><button class="secondary-btn" id="addSiteBtn">＋ Add location</button></div>
+          <div id="cameraSites" class="camera-sites"></div>
+          <div id="cameraEmptyState" class="connect-empty hidden"><div class="connect-empty-icon">▣</div><span class="eyebrow">LET'S GET STARTED</span><h2>No CCTV connected yet</h2><p>Connect a compatible IP camera or DVR/NVR to begin. You can add your home first, then add an office or other location whenever you need.</p><button class="primary-btn" id="emptyAddCameraBtn">＋ Connect your first CCTV</button><div class="connect-methods"><span>IP camera</span><span>DVR / NVR</span><span>Video file for testing</span></div></div>
           <div id="allCamerasGrid" class="camera-grid large-camera-grid"></div>
-          <div class="notice-strip"><span class="notice-icon">ⓘ</span><div><strong>Prototype camera feeds</strong><p>These are visual placeholders. Connect a camera source in the backend to display live video.</p></div></div>
+          <div class="notice-strip"><span class="notice-icon">ⓘ</span><div><strong>Connection status is a prototype</strong><p>This page stores camera labels and site organization in this browser only. Live RTSP connection, credential validation, and camera discovery require the backend. Never enter camera passwords into this demo.</p></div></div>
         </section>
 
         <section id="page-knownpeople" class="page">
