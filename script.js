@@ -1,206 +1,88 @@
-const demoEvents = [
-  { id: 1, time: "16:18", displayTime: "4:18 PM", title: "Person entered restricted zone", type: "alert", typeLabel: "Security alert", camera: "Backyard", description: "A person was detected inside the configured backyard zone.", duration: "01:23", status: "Needs review", statusClass: "review", icon: "!", scene: "scene-back", tag: "CAM 03", date: "2026-10-13" },
-  { id: 2, time: "16:05", displayTime: "4:05 PM", title: "Person left the property", type: "arrival", typeLabel: "Departure", camera: "Front entrance", description: "A tracked person was detected moving out through the main entrance.", duration: "00:52", status: "Logged", statusClass: "logged", icon: "↗", scene: "scene-entry", tag: "CAM 01", date: "2026-10-13" },
-  { id: 3, time: "15:42", displayTime: "3:42 PM", title: "Person arrived home", type: "arrival", typeLabel: "Arrival", camera: "Driveway", description: "A person was detected entering the driveway area.", duration: "00:48", status: "Logged", statusClass: "logged", icon: "⌂", scene: "scene-drive", tag: "CAM 02", date: "2026-10-13" },
-  { id: 4, time: "14:14", displayTime: "2:14 PM", title: "Delivery person detected", type: "delivery", typeLabel: "Delivery", camera: "Front entrance", description: "A person approached the front door carrying a parcel. This label is illustrative and is not currently inferred by the model.", duration: "01:24", status: "Logged", statusClass: "logged", icon: "▣", scene: "scene-entry", tag: "CAM 01", date: "2026-10-13" },
-  { id: 5, time: "13:26", displayTime: "1:26 PM", title: "Person detected near entrance", type: "person", typeLabel: "Person detected", camera: "Front entrance", description: "A person was visible in the entrance camera view.", duration: "00:37", status: "Logged", statusClass: "info", icon: "♙", scene: "scene-entry", tag: "CAM 01", date: "2026-10-13" },
-  { id: 6, time: "11:52", displayTime: "11:52 AM", title: "Movement detected in living room", type: "person", typeLabel: "Person detected", camera: "Living room", description: "Movement was recorded in the living room camera area.", duration: "00:29", status: "Logged", statusClass: "info", icon: "♙", scene: "scene-hall", tag: "CAM 04", date: "2026-10-13" },
-  { id: 7, time: "09:11", displayTime: "9:11 AM", title: "Person left through main entrance", type: "arrival", typeLabel: "Departure", camera: "Front entrance", description: "A person was detected leaving through the front entrance.", duration: "00:41", status: "Logged", statusClass: "logged", icon: "↗", scene: "scene-entry", tag: "CAM 01", date: "2026-10-13" },
-  { id: 8, time: "08:03", displayTime: "8:03 AM", title: "Person detected in driveway", type: "person", typeLabel: "Person detected", camera: "Driveway", description: "A person was detected in the driveway view.", duration: "00:32", status: "Logged", statusClass: "info", icon: "♙", scene: "scene-drive", tag: "CAM 02", date: "2026-10-13" }
+const $ = (s, root=document) => root.querySelector(s);
+const $$ = (s, root=document) => [...root.querySelectorAll(s)];
+const cameras = [
+  {name:'Driveway', id:'CAM 01', quality:'1080p', scene:'preview-drive', status:'online', location:'Outside · Front'},
+  {name:'Front entrance', id:'CAM 02', quality:'1080p', scene:'preview-front', status:'online', location:'Main entrance'},
+  {name:'Back garden', id:'CAM 03', quality:'720p', scene:'preview-back', status:'online', location:'Outside · Rear'},
+  {name:'Living room', id:'CAM 04', quality:'1080p', scene:'preview-front', status:'online', location:'Indoor · Ground floor'}
 ];
-
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const pages = ["overview", "cameras", "events", "recordings"];
-let toastTimer;
-
-function showToast(message) {
-  const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+let currentUser = {name:'Jules Shastri', email:'jules@example.com'};
+let selectedHour = null, localVideoUrl = null, toastTimer;
+const knownPeople = [];
+let pendingFacePhotoUrl = null;
+const events = [
+ {time:'18:42',title:'Person detected',detail:'A person crossed the driveway detection zone.',camera:'Driveway',type:'person',icon:'♙',color:'purple',recording:true},
+ {time:'17:26',title:'Delivery arrived',detail:'A delivery person approached the front entrance.',camera:'Front entrance',type:'delivery',icon:'▣',color:'amber',recording:true},
+ {time:'16:58',title:'You returned home',detail:'Person detected entering the property.',camera:'Driveway',type:'arrival',icon:'↗',color:'green',recording:true},
+ {time:'15:41',title:'Motion detected',detail:'Movement detected near the back garden.',camera:'Back garden',type:'motion',icon:'◉',color:'cyan',recording:true},
+ {time:'13:05',title:'Person detected',detail:'A person walked past the front gate.',camera:'Driveway',type:'person',icon:'♙',color:'purple',recording:true},
+ {time:'12:22',title:'Delivery completed',detail:'Delivery person left the entrance area.',camera:'Front entrance',type:'delivery',icon:'▣',color:'amber',recording:true},
+ {time:'08:14',title:'You left home',detail:'Departure activity detected at the driveway.',camera:'Driveway',type:'arrival',icon:'↗',color:'green',recording:true},
+ {time:'07:52',title:'Person detected',detail:'Movement detected in the living room.',camera:'Living room',type:'person',icon:'♙',color:'purple',recording:true}
+];
+const hours = [
+ {start:0,end:1,clips:0,amount:0},{start:1,end:2,clips:0,amount:0},{start:2,end:3,clips:0,amount:0},
+ {start:6,end:7,clips:2,amount:30},{start:7,end:8,clips:5,amount:78},{start:8,end:9,clips:3,amount:52},
+ {start:9,end:10,clips:2,amount:34},{start:10,end:11,clips:0,amount:0},{start:11,end:12,clips:0,amount:0},
+ {start:12,end:13,clips:3,amount:64},{start:13,end:14,clips:2,amount:43},{start:14,end:15,clips:0,amount:0},
+ {start:15,end:16,clips:2,amount:48},{start:16,end:17,clips:4,amount:76},{start:17,end:18,clips:5,amount:90},
+ {start:18,end:19,clips:4,amount:72},{start:19,end:20,clips:0,amount:0},{start:20,end:21,clips:0,amount:0},
+ {start:21,end:22,clips:0,amount:0},{start:22,end:23,clips:0,amount:0},{start:23,end:24,clips:0,amount:0}
+];
+function initials(name){return name.trim().split(/\s+/).slice(0,2).map(x=>x[0]?.toUpperCase()||'').join('')||'U'}
+function syncUser(){const first=currentUser.name.split(' ')[0]||'there';$('#sidebarName').textContent=currentUser.name;$('#sidebarEmail').textContent=currentUser.email;$('#topName').textContent=currentUser.name;$('#sidebarAvatar').textContent=initials(currentUser.name);$('#topAvatar').textContent=initials(currentUser.name);$('#menuAvatar').textContent=initials(currentUser.name);$('#menuName').textContent=currentUser.name;$('#menuEmail').textContent=currentUser.email;$('#settingsAvatar').textContent=initials(currentUser.name);$('#profileNameInput').value=currentUser.name;$('#profileEmailInput').value=currentUser.email}
+function showToast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2600)}
+function goPage(page){$$('.page').forEach(p=>p.classList.toggle('active',p.id===`page-${page}`));$$('[data-page]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-item')&&b.dataset.page===page));$('#pageCrumb').textContent=({overview:'Overview',cameras:'Cameras',events:'Events & timeline',recordings:'Recording archive',settings:'Settings',knownpeople:'Known people'})[page]||'Overview';$('#profileMenu').classList.add('hidden');$('#sidebar').classList.remove('mobile-open');if(page==='cameras')renderCameras();if(page==='knownpeople')renderKnownPeople();if(page==='events')renderEvents();if(page==='recordings')renderHours();window.scrollTo({top:0,behavior:'smooth'})}
+function showApp(user){currentUser=user;syncUser();$('#authScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');goPage('overview')}
+function showAuth(){ $('#appShell').classList.add('hidden');$('#authScreen').classList.remove('hidden');$('#profileMenu').classList.add('hidden')}
+function authTab(tab){$$('.auth-tab').forEach(b=>b.classList.toggle('active',b.dataset.auth===tab));$('#signinForm').classList.toggle('hidden',tab!=='signin');$('#signupForm').classList.toggle('hidden',tab!=='signup');$('#authMessage').textContent='';$('#signUpMessage').textContent=''}
+function renderCameraCard(c,i){return `<article class="camera-card"><div class="camera-preview ${c.scene}"><span class="preview-label"><i class="record-dot"></i> DEMO FEED</span><span class="camera-overlay">${c.id}</span><div class="${c.scene==='preview-drive'?'scene-road':c.scene==='preview-back'?'scene-garden':'scene-door'}"></div></div><div class="camera-info"><div><strong>${c.name}</strong><small><span class="online-dot"></span> ${c.status==='online'?'Online':'Offline'} · ${c.quality} · ${c.location}</small></div><button class="dots-btn camera-more" data-camera="${c.name}">•••</button></div><div class="camera-info camera-extra"><button class="text-btn open-camera-archive" data-camera="${c.name}">View recordings →</button><span class="muted" style="font-size:10px">● Recording demo</span></div></article>`}
+function renderCameras(filter='all',query=''){const grid=$('#allCamerasGrid');if(!grid)return;const list=cameras.filter(c=>(filter==='all'||c.status===filter)&&(`${c.name} ${c.id} ${c.location}`).toLowerCase().includes(query.toLowerCase()));grid.innerHTML=list.map(renderCameraCard).join('')||'<div class="empty-state"><strong>No cameras found</strong><p>Try another search or filter.</p></div>';$$('.open-camera-archive').forEach(b=>b.addEventListener('click',()=>{goPage('recordings');$('#archiveCamera').value=b.dataset.camera;$('#playCamera').textContent=b.dataset.camera;renderHours()}));$$('.camera-more').forEach(b=>b.addEventListener('click',()=>showToast(`${b.dataset.camera}: camera actions are demo-only.`)))}
+function eventMarkup(e,compact=false){return `<div class="${compact?'event-row':'timeline-item'}">${compact?`<div class="event-symbol ${e.color}">${e.icon}</div><div class="event-row-main"><strong>${e.title}</strong><p>${e.camera} · ${e.detail}</p></div><span class="event-time">${e.time}</span>`:`<div class="timeline-time">${e.time}</div><div class="timeline-rail"><span class="timeline-dot ${e.color}">${e.icon}</span></div><div class="timeline-content"><div><strong>${e.title}</strong><p>${e.detail}</p><div class="timeline-tags"><span class="timeline-tag">▣ ${e.camera}</span><span class="timeline-tag">${e.type==='person'?'Person detection':e.type==='delivery'?'Delivery':e.type==='arrival'?'Arrival / departure':'Motion detection'}</span></div></div>${e.recording?`<button class="timeline-recording" data-event-time="${e.time}" data-event-camera="${e.camera}">▶ View footage</button>`:''}</div>`}</div>`}
+function renderRecent(){ $('#recentEvents').innerHTML=events.slice(0,4).map(e=>eventMarkup(e,true)).join('')}
+function renderEvents(){const q=($('#eventSearch')?.value||'').toLowerCase(),type=$('#eventTypeFilter')?.value||'all';const filtered=events.filter(e=>(type==='all'||e.type===type)&&`${e.title} ${e.detail} ${e.camera}`.toLowerCase().includes(q));$('#eventTimeline').innerHTML=filtered.map(e=>eventMarkup(e,false)).join('');$('#eventCount').textContent=`${filtered.length} event${filtered.length===1?'':'s'}`;$('#noEvents').classList.toggle('hidden',filtered.length>0);const date=$('#eventDateFilter').value;if(date){const d=new Date(date+'T12:00:00');$('#timelineDateTitle').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});$('.date-marker').textContent=d.getDate()}$$('.timeline-recording').forEach(b=>b.addEventListener('click',()=>{goPage('recordings');$('#archiveCamera').value=b.dataset.eventCamera;$('#playCamera').textContent=b.dataset.eventCamera;const [h]=b.dataset.eventTime.split(':').map(Number);const idx=hours.findIndex(x=>x.start===h);selectHour(idx>=0?idx:hours.findIndex(x=>x.clips>0))}))}
+function hourLabel(h){const fmt=n=>`${String(n%24).padStart(2,'0')}:00`;return `${fmt(h.start)} – ${fmt(h.end)}`}
+function renderHours(){const date=$('#archiveDate').value||'2026-10-13';const d=new Date(date+'T12:00:00');$('#archiveDateTitle').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});const available=hours.filter(h=>h.clips>0).length;$('#archiveSummaryText').textContent=`${available} sample hourly segments · demo archive`;$('#hourlyList').innerHTML=hours.map((h,i)=>`<button class="hour-row ${selectedHour===i?'selected':''}" data-hour-index="${i}"><span class="hour-label">${hourLabel(h)}</span><span class="hour-bar ${h.clips?'':'empty'}"><span style="width:${h.amount}%"></span></span><span class="clip-count">${h.clips||'—'}</span></button>`).join('');$$('.hour-row').forEach(b=>b.addEventListener('click',()=>selectHour(Number(b.dataset.hourIndex))))}
+function selectHour(index){selectedHour=index;const h=hours[index];if(!h)return;const cam=$('#archiveCamera').value;$('#playCamera').textContent=cam;$('#playHour').textContent=hourLabel(h);$('#playbackSubhead').textContent=hourLabel(h)+' · '+cam;$('#playLocalBtn').disabled=false;const stage=$('#videoStage');if(localVideoUrl){stage.innerHTML=`<video controls autoplay src="${localVideoUrl}"></video>`}else if(h.clips){stage.innerHTML=`<div class="video-placeholder"><span class="play-large">▶</span><strong>${cam} · ${hourLabel(h)}</strong><p>${h.clips} sample event clip${h.clips===1?'':'s'} listed for this hour.</p><p style="margin-top:8px;color:var(--accent)">DEMO ARCHIVE · NO SAVED VIDEO</p></div>`}else{stage.innerHTML=`<div class="video-placeholder"><span class="play-large">—</span><strong>No sample footage</strong><p>No sample recording is listed for ${hourLabel(h)}.</p></div>`}renderHours()}
+function exportCsv(){const rows=[['Time','Event','Camera','Type','Details'],...events.map(e=>[e.time,e.title,e.camera,e.type,e.detail])];const csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='sentinel-events-demo.csv';a.click();URL.revokeObjectURL(a.href);showToast('Demo events exported as CSV.')}
+function openModal(title,body){$('#modalContent').innerHTML=`<h2>${title}</h2>${body}`;$('#modalBackdrop').classList.remove('hidden')}
+function escapeHtml(value){return String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
+function renderKnownPeople(){
+ const list=$('#knownPeopleList'); if(!list)return;
+ $('#knownPeopleCount').textContent=`${knownPeople.length} ${knownPeople.length===1?'person':'people'} enrolled in this session.`;
+ if(!knownPeople.length){list.innerHTML='<div class="empty-state"><span>♙</span><strong>No people enrolled yet</strong><p>Add a person using the form. The prototype will show their profile here.</p></div>';return;}
+ list.innerHTML=knownPeople.map((person,index)=>`<article class="known-person-card"><img src="${person.photo}" alt="Preview of ${escapeHtml(person.name)}"><div class="known-person-copy"><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.relation)}</span><small>Enrolled in this session · recognition not active</small></div><button class="remove-person-btn" data-remove-person="${index}" type="button" aria-label="Remove ${escapeHtml(person.name)}">×</button></article>`).join('');
+ $$('[data-remove-person]').forEach(b=>b.addEventListener('click',()=>{const i=Number(b.dataset.removePerson);const person=knownPeople[i];if(person?.photo)URL.revokeObjectURL(person.photo);knownPeople.splice(i,1);renderKnownPeople();showToast('Person removed from this demo session.');}));
 }
+function init(){
+  $$('.auth-tab').forEach(b=>b.addEventListener('click',()=>authTab(b.dataset.auth)));
+  $$('.show-password').forEach(b=>b.addEventListener('click',()=>{const input=$('#'+b.dataset.target);input.type=input.type==='password'?'text':'password';b.textContent=input.type==='password'?'Show':'Hide'}));
+  $('#signInBtn').addEventListener('click',()=>{const email=$('#signInEmail').value.trim(),pass=$('#signInPassword').value;if(!email||!pass){$('#authMessage').textContent='Enter your email and password to continue.';return}const name=email.split('@')[0].split(/[._-]/).map(s=>s? s[0].toUpperCase()+s.slice(1):'').join(' ');showApp({name:name||'User',email});showToast('Welcome to your demo workspace.')});
+  $('#signUpBtn').addEventListener('click',()=>{const name=$('#signUpName').value.trim(),email=$('#signUpEmail').value.trim(),pass=$('#signUpPassword').value;if(!name||!email||!pass){$('#signUpMessage').textContent='Please complete all fields.';return}if(pass.length<6){$('#signUpMessage').textContent='Use at least 6 characters for this demo.';return}showApp({name,email});showToast('Demo account created for this session.')});
+  $('#forgotLink').addEventListener('click',e=>{e.preventDefault();openModal('Password reset', '<p>Password reset is not connected in this frontend prototype. A backend email flow can be added with real authentication.</p><button class="primary-btn close-modal-action" type="button">Got it</button>')});
+  $('#authThemeBtn').addEventListener('click',()=>document.body.classList.toggle('light'));
+  $('#themeBtn').addEventListener('click',()=>{document.body.classList.toggle('light');showToast(document.body.classList.contains('light')?'Light mode enabled':'Dark mode enabled')});
+  $('#profileBtn').addEventListener('click',()=>$('#profileMenu').classList.toggle('hidden'));$('#sidebarUserMenuBtn').addEventListener('click',()=>$('#profileMenu').classList.toggle('hidden'));
+  document.addEventListener('click',e=>{if(!e.target.closest('.profile-wrap')&&!e.target.closest('#sidebarUserMenuBtn'))$('#profileMenu').classList.add('hidden')});
+  $$('[data-page]').forEach(b=>b.addEventListener('click',()=>goPage(b.dataset.page)));
+  $('#signOutBtn').addEventListener('click',()=>{showAuth();authTab('signin');$('#signInPassword').value='';showToast('Signed out of the demo workspace.')});
+  $('#cameraSearch').addEventListener('input',()=>renderCameras($('.filter-pill.active')?.dataset.cameraFilter||'all',$('#cameraSearch').value));
+  $$('.filter-pill').forEach(b=>b.addEventListener('click',()=>{$$('.filter-pill').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderCameras(b.dataset.cameraFilter,$('#cameraSearch').value)}));
+  $('#addCameraBtn').addEventListener('click',()=>openModal('Connect a camera','<p>Camera pairing is not connected yet. The backend can later register RTSP, USB, or supported network camera sources here.</p><button class="primary-btn close-modal-action" type="button">Understood</button>'));
+  $('#eventSearch').addEventListener('input',renderEvents);$('#eventTypeFilter').addEventListener('change',renderEvents);$('#eventDateFilter').addEventListener('change',renderEvents);$('#exportEventsBtn').addEventListener('click',exportCsv);
+  $('#archiveCamera').addEventListener('change',()=>{selectedHour=null;$('#playCamera').textContent=$('#archiveCamera').value;$('#playHour').textContent='—';$('#videoStage').innerHTML='<div class="video-placeholder"><span class="play-large">▶</span><strong>No hour selected</strong><p>Choose an available hour from the archive.</p></div>';renderHours()});
+  $('#archiveDate').addEventListener('change',()=>{selectedHour=null;$('#playHour').textContent='—';$('#videoStage').innerHTML='<div class="video-placeholder"><span class="play-large">▶</span><strong>No hour selected</strong><p>Choose an available hour from the archive.</p></div>';renderHours()});
+  $('#recordingType').addEventListener('change',()=>showToast('Recording type filter is a UI demo; no real archive is connected.'));
+  $('#importVideoBtn').addEventListener('click',()=>$('#localVideoInput').click());
+  $('#localVideoInput').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;if(localVideoUrl)URL.revokeObjectURL(localVideoUrl);localVideoUrl=URL.createObjectURL(f);if(selectedHour===null)selectHour(hours.findIndex(h=>h.clips>0));else selectHour(selectedHour);showToast('Local video loaded for preview only.')});
+  $('#playLocalBtn').addEventListener('click',()=>{if(localVideoUrl){$('#videoStage').innerHTML=`<video controls autoplay src="${localVideoUrl}"></video>`}else showToast('Select “Preview local video” to play an actual video file. Sample hours contain metadata only.')});
+  $('#downloadInfoBtn').addEventListener('click',()=>{const h=selectedHour===null?null:hours[selectedHour];openModal('Recording details',`<p><strong>Camera:</strong> ${$('#archiveCamera').value}<br><strong>Date:</strong> ${$('#archiveDate').value}<br><strong>Hour:</strong> ${h?hourLabel(h):'No hour selected'}<br><strong>Source:</strong> Mock archive data<br><strong>Stored video:</strong> Not connected</p><p>This archive demonstrates the planned hour-by-hour layout. It does not claim that video has been recorded or saved.</p><button class="primary-btn close-modal-action" type="button">Close details</button>`)});
+  $('#closeModal').addEventListener('click',()=>$('#modalBackdrop').classList.add('hidden'));$('#modalContent').addEventListener('click',e=>{if(e.target.closest('.close-modal-action'))$('#modalBackdrop').classList.add('hidden')});$('#modalBackdrop').addEventListener('click',e=>{if(e.target.id==='modalBackdrop')$('#modalBackdrop').classList.add('hidden')});
+  $('#profileForm').addEventListener('submit',e=>{e.preventDefault();currentUser.name=$('#profileNameInput').value.trim()||'User';currentUser.email=$('#profileEmailInput').value.trim();syncUser();$('#settingsMessage').textContent='Profile updated in this demo session.';showToast('Profile details updated.')});
+  $('#knownPersonPhoto').addEventListener('change',e=>{const file=e.target.files?.[0],preview=$('#facePhotoPreview');if(pendingFacePhotoUrl){URL.revokeObjectURL(pendingFacePhotoUrl);pendingFacePhotoUrl=null;}if(!file){preview.innerHTML='<span>♙</span><p>Photo preview will appear here</p>';return;}if(!file.type.startsWith('image/')){e.target.value='';preview.innerHTML='<span>!</span><p>Please choose an image file.</p>';return;}pendingFacePhotoUrl=URL.createObjectURL(file);preview.innerHTML=`<img src="${pendingFacePhotoUrl}" alt="Selected face photo preview"><p>${escapeHtml(file.name)}</p>`;});
+  $('#knownPersonForm').addEventListener('submit',e=>{e.preventDefault();const name=$('#knownPersonName').value.trim(),relation=$('#knownPersonRelation').value,file=$('#knownPersonPhoto').files?.[0];if(!name||!file||!$('#faceConsent').checked){$('#knownPersonMessage').textContent='Enter a name, select a photo, and confirm you have permission.';return;}if(!file.type.startsWith('image/')){$('#knownPersonMessage').textContent='Please select a valid image file.';return;}const photoUrl=URL.createObjectURL(file);knownPeople.push({name,relation,photo:photoUrl});if(pendingFacePhotoUrl)URL.revokeObjectURL(pendingFacePhotoUrl);pendingFacePhotoUrl=null;e.target.reset();$('#facePhotoPreview').innerHTML='<span>♙</span><p>Photo preview will appear here</p>';$('#knownPersonMessage').textContent='Added to the demo list. Face recognition is not active yet.';renderKnownPeople();showToast(`${name} added to known people.`);});
 
-function navigate(page) {
-  if (!pages.includes(page)) return;
-  $$(".page-view").forEach(view => view.classList.toggle("active", view.id === `page-${page}`));
-  $$(".nav-link").forEach(link => link.classList.toggle("active", link.dataset.page === page));
-  $("#mobileMenu").setAttribute("aria-expanded", "false");
-  $(".main-nav").classList.remove("mobile-open");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  $('#securityTab').addEventListener('click',()=>openModal('Sign-in & security','<p>Real password changes, two-factor authentication, and session management will be available after a secure backend is connected.</p>'));$('#preferencesTab').addEventListener('click',()=>openModal('Preferences','<p>Theme preference currently applies in this browser session. Notification, retention, and recording preferences can be wired to the backend later.</p>'));$('#profileHelpBtn').addEventListener('click',()=>openModal('Help & support','<p>This is a frontend prototype. For setup help, review the README included with the project files.</p>'));$('#notificationBtn').addEventListener('click',()=>showToast('You’re all caught up in this demo.'));
+  renderRecent();renderCameras();renderEvents();renderHours();renderKnownPeople();
 }
-
-document.addEventListener("click", event => {
-  const nav = event.target.closest("[data-page]");
-  if (nav) {
-    event.preventDefault();
-    navigate(nav.dataset.page);
-  }
-});
-
-function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  const light = theme === "light";
-  $("#themeToggle").setAttribute("aria-label", light ? "Switch to dark mode" : "Switch to light mode");
-  $("#themeIcon").textContent = light ? "☾" : "☼";
-  document.querySelector('meta[name="theme-color"]').content = light ? "#f4f6f8" : "#11151d";
-  try { localStorage.setItem("sentinel-theme", theme); } catch (_) {}
-}
-$("#themeToggle").addEventListener("click", () => {
-  setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
-});
-try {
-  const savedTheme = localStorage.getItem("sentinel-theme");
-  if (savedTheme === "light" || savedTheme === "dark") setTheme(savedTheme);
-} catch (_) {}
-
-$("#mobileMenu").addEventListener("click", () => {
-  const nav = $(".main-nav");
-  const open = nav.classList.toggle("mobile-open");
-  $("#mobileMenu").setAttribute("aria-expanded", String(open));
-});
-
-function sceneMarkup(scene, tag) {
-  let detail = "";
-  if (scene === "scene-entry") detail = '<div class="scene-door"></div><div class="scene-person"></div><div class="detection-box"></div>';
-  if (scene === "scene-drive") detail = '<div class="drive-ground"></div><div class="drive-car"></div><div class="drive-tree"></div>';
-  if (scene === "scene-back") detail = '<div class="back-fence"></div><div class="back-person"></div>';
-  if (scene === "scene-hall") detail = '<div class="hall-window"></div><div class="hall-sofa"></div><div class="hall-lamp"></div>';
-  return `<div class="${scene}">${detail}<span class="event-thumb-tag">${tag}</span></div>`;
-}
-
-function renderMiniEvents() {
-  $("#overviewEvents").innerHTML = demoEvents.slice(0, 4).map(event => `
-    <div class="mini-event" data-event-id="${event.id}" tabindex="0" role="button" aria-label="View ${event.title}">
-      <div class="event-symbol ${event.type}">${event.icon}</div>
-      <div><div class="mini-event-title">${event.title}</div><div class="mini-event-sub">${event.camera} · ${event.typeLabel}</div></div>
-      <div class="event-time">${event.displayTime}</div>
-    </div>`).join("");
-}
-
-function renderEventList() {
-  const query = $("#eventSearch").value.trim().toLowerCase();
-  const type = $("#eventTypeFilter").value;
-  const camera = $("#eventCameraFilter").value;
-  const date = $("#eventDateFilter").value;
-  const filtered = demoEvents.filter(event => {
-    const matchesQuery = !query || [event.title, event.camera, event.description, event.typeLabel].some(value => value.toLowerCase().includes(query));
-    const matchesType = type === "all" || event.type === type;
-    const matchesCamera = camera === "all" || event.camera === camera;
-    const matchesDate = !date || event.date === date;
-    return matchesQuery && matchesType && matchesCamera && matchesDate;
-  });
-  $("#eventList").innerHTML = filtered.map(event => `
-    <article class="event-row ${event.statusClass === "review" ? "important" : ""}" data-event-id="${event.id}" tabindex="0" role="button" aria-label="Open event: ${event.title}">
-      <div class="event-row-time">${event.displayTime}</div><div class="timeline-node"></div>
-      <div class="event-card">
-        <div class="event-thumb ${event.scene}">${sceneMarkup(event.scene, event.tag)}</div>
-        <div class="event-card-content">
-          <div class="event-type-label">${event.typeLabel}</div>
-          <div class="event-title">${event.title}</div>
-          <div class="event-description">${event.description}</div>
-          <div class="event-metadata"><span>▣ ${event.camera}</span><span>▷ ${event.duration}</span></div>
-        </div>
-        <span class="event-status ${event.statusClass}">${event.status}</span>
-      </div>
-    </article>`).join("");
-  $("#emptyEvents").classList.toggle("hidden", filtered.length > 0);
-  $("#eventList").classList.toggle("hidden", filtered.length === 0);
-  $("#eventCount").textContent = filtered.length;
-}
-
-function openEvent(eventId) {
-  const event = demoEvents.find(item => item.id === Number(eventId));
-  if (!event) return;
-  $("#modalPreview").className = `modal-preview ${event.scene}`;
-  $("#modalPreview").innerHTML = `${sceneMarkup(event.scene, event.tag)}<span class="modal-camera-tag">${event.tag}</span><span class="modal-play">▷</span>`;
-  $("#modalTitle").textContent = event.title;
-  $("#modalDescription").textContent = event.description;
-  $("#modalCamera").textContent = event.camera;
-  $("#modalTimestamp").textContent = `${event.date} · ${event.displayTime}`;
-  $("#modalType").textContent = event.typeLabel;
-  $("#modalDuration").textContent = event.duration;
-  $("#eventModal").classList.remove("hidden");
-  $("#closeModal").focus();
-}
-function closeEventModal() { $("#eventModal").classList.add("hidden"); }
-document.addEventListener("click", event => {
-  const item = event.target.closest("[data-event-id]");
-  if (item) openEvent(item.dataset.eventId);
-});
-document.addEventListener("keydown", event => {
-  const item = event.target.closest("[data-event-id]");
-  if (item && (event.key === "Enter" || event.key === " ")) {
-    event.preventDefault();
-    openEvent(item.dataset.eventId);
-  }
-  if (event.key === "Escape") closeEventModal();
-});
-$("#closeModal").addEventListener("click", closeEventModal);
-$("#eventModal").addEventListener("click", event => {
-  if (event.target === $("#eventModal")) closeEventModal();
-});
-
-["eventSearch", "eventTypeFilter", "eventCameraFilter", "eventDateFilter"].forEach(id => {
-  $(`#${id}`).addEventListener(id === "eventSearch" ? "input" : "change", renderEventList);
-});
-$("#clearFilters").addEventListener("click", () => {
-  $("#eventSearch").value = "";
-  $("#eventTypeFilter").value = "all";
-  $("#eventCameraFilter").value = "all";
-  $("#eventDateFilter").value = "";
-  renderEventList();
-});
-$("#cameraFilter").addEventListener("change", event => {
-  const value = event.target.value;
-  $$("#allCameras > .camera-card").forEach(card => {
-    card.classList.toggle("hidden", value !== "all" && card.dataset.status !== value);
-  });
-});
-$("#recordingCameraFilter").addEventListener("change", event => {
-  const value = event.target.value;
-  $$(".recording-card").forEach(card => card.classList.toggle("hidden", value !== "all" && card.dataset.camera !== value));
-});
-
-$("#exportEvents").addEventListener("click", () => {
-  const headers = ["timestamp", "event", "type", "camera", "description", "status"];
-  const rows = demoEvents.map(event => [event.date + " " + event.displayTime, event.title, event.typeLabel, event.camera, event.description, event.status]);
-  const csv = [headers, ...rows].map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url; link.download = "sentinel-demo-events.csv"; link.click();
-  URL.revokeObjectURL(url);
-  showToast("Demo event history exported as CSV.");
-});
-
-$("#uploadButton").addEventListener("click", () => $("#videoUpload").click());
-let activeVideoUrl = null;
-$("#videoUpload").addEventListener("change", event => {
-  const file = event.target.files && event.target.files[0];
-  if (!file) return;
-  if (activeVideoUrl) URL.revokeObjectURL(activeVideoUrl);
-  activeVideoUrl = URL.createObjectURL(file);
-  $("#previewVideo").src = activeVideoUrl;
-  $("#uploadedPreview").classList.remove("hidden");
-  $("#uploadedPreview").scrollIntoView({ behavior: "smooth", block: "start" });
-  showToast(`Local preview ready: ${file.name}`);
-});
-$("#closePreview").addEventListener("click", () => {
-  $("#previewVideo").pause();
-  $("#previewVideo").removeAttribute("src");
-  $("#previewVideo").load();
-  $("#uploadedPreview").classList.add("hidden");
-  if (activeVideoUrl) URL.revokeObjectURL(activeVideoUrl);
-  activeVideoUrl = null;
-  $("#videoUpload").value = "";
-});
-$$("[data-demo='camera']").forEach(button => button.addEventListener("click", () => showToast("Camera feed is sample UI. Live streaming will be added with backend integration.")));
-$$(".recording-open").forEach(button => button.addEventListener("click", () => {
-  const key = button.dataset.sample;
-  const event = key === "delivery" ? demoEvents[3] : key === "arrival" ? demoEvents[2] : demoEvents[0];
-  openEvent(event.id);
-}));
-renderMiniEvents();
-renderEventList();
+document.addEventListener('DOMContentLoaded',init);
