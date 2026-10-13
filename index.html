@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11151d">
+  <title>Sentinel — Smart Surveillance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Sentinel home" data-page="overview">
+        <span class="brand-mark"><span></span><span></span><span></span></span>
+        <span class="brand-name">sentinel<span class="brand-dot">.</span><small>SMART SURVEILLANCE</small></span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-link active" data-page="overview"><span class="nav-icon">◫</span> Overview</button>
+        <button class="nav-link" data-page="cameras"><span class="nav-icon">▣</span> Cameras</button>
+        <button class="nav-link" data-page="events"><span class="nav-icon">◷</span> Events <span class="nav-count">4</span></button>
+        <button class="nav-link" data-page="recordings"><span class="nav-icon">▷</span> Recordings</button>
+      </nav>
+      <div class="top-actions">
+        <div class="system-status"><span class="status-dot"></span><span>System operational</span></div>
+        <button id="themeToggle" class="icon-button theme-toggle" aria-label="Switch to light mode" title="Switch theme"><span id="themeIcon">☼</span></button>
+        <button class="avatar" title="Demo profile">JS</button>
+      </div>
+      <button class="mobile-menu" id="mobileMenu" aria-label="Toggle navigation">☰</button>
+    </header>
+
+    <main class="main-content">
+      <section class="page-view active" id="page-overview">
+        <div class="page-heading">
+          <div><p class="eyebrow">TUESDAY, OCTOBER 13, 2026 <span class="eyebrow-separator">/</span> HOME SECURITY</p><h1>Your home, <span>in focus.</span></h1><p class="subheading">A clear view of what's happening, wherever you are.</p></div>
+          <div class="heading-actions"><span class="last-updated"><span class="status-dot"></span> Demo environment</span><button class="button button-primary" data-page="events">View activity <span>↗</span></button></div>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card"><div class="stat-top"><span class="stat-label">Connected cameras</span><span class="stat-icon cyan">▣</span></div><div class="stat-value">04 <span class="stat-unit">/ 04</span></div><div class="stat-foot"><span class="mini-dot green"></span> All cameras online</div></article>
+          <article class="stat-card"><div class="stat-top"><span class="stat-label">Events today</span><span class="stat-icon violet">◷</span></div><div class="stat-value">12</div><div class="stat-foot"><span class="trend-up">↗ 3</span> more than yesterday</div></article>
+          <article class="stat-card"><div class="stat-top"><span class="stat-label">People detected</span><span class="stat-icon amber">♙</span></div><div class="stat-value">08</div><div class="stat-foot">Across all camera feeds</div></article>
+          <article class="stat-card"><div class="stat-top"><span class="stat-label">Priority alerts</span><span class="stat-icon rose">♧</span></div><div class="stat-value">02</div><div class="stat-foot"><span class="alert-word">Needs review</span> · Demo data</div></article>
+        </div>
+
+        <div class="section-heading"><div><h2>Camera overview</h2><p>Your most important views, at a glance.</p></div><button class="text-button" data-page="cameras">All cameras <span>→</span></button></div>
+        <div class="camera-grid">
+          <article class="camera-card"><div class="camera-image scene-entry"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 01 · 14:32:08</span></div><div class="scene-label">FRONT ENTRANCE</div><div class="scene-door"></div><div class="scene-person"></div><div class="detection-box"></div></div><div class="camera-info"><div><h3>Front entrance</h3><p><span class="mini-dot green"></span> Online · 1080p</p></div><button class="more-button" aria-label="Camera options">···</button></div></article>
+          <article class="camera-card"><div class="camera-image scene-drive"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 02 · 14:32:08</span></div><div class="scene-label">DRIVEWAY</div><div class="drive-ground"></div><div class="drive-car"></div><div class="drive-tree"></div></div><div class="camera-info"><div><h3>Driveway</h3><p><span class="mini-dot green"></span> Online · 1080p</p></div><button class="more-button" aria-label="Camera options">···</button></div></article>
+          <article class="camera-card"><div class="camera-image scene-back"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 03 · 14:32:08</span></div><div class="scene-label">BACKYARD</div><div class="back-fence"></div><div class="back-person"></div></div><div class="camera-info"><div><h3>Backyard</h3><p><span class="mini-dot green"></span> Online · 720p</p></div><button class="more-button" aria-label="Camera options">···</button></div></article>
+          <article class="camera-card add-camera-card" data-page="cameras"><div class="add-camera-inner"><span class="add-camera-icon">＋</span><h3>Manage cameras</h3><p>View your camera list and configure your setup.</p><span class="text-button">Open camera manager →</span></div></article>
+        </div>
+
+        <div class="lower-grid">
+          <section class="panel recent-panel"><div class="section-heading compact"><div><h2>Recent activity</h2><p>Latest events across your property.</p></div><button class="text-button" data-page="events">View all →</button></div><div class="event-list mini-events" id="overviewEvents"></div></section>
+          <section class="panel activity-panel"><div class="section-heading compact"><div><h2>Activity snapshot</h2><p>Event distribution today.</p></div><span class="period-chip">Today</span></div><div class="chart-wrap"><div class="donut-chart"><div class="donut-center"><strong>12</strong><span>total events</span></div></div><div class="chart-legend"><div><span class="legend-dot cyan-bg"></span><span>People detected</span><strong>06</strong></div><div><span class="legend-dot violet-bg"></span><span>Arrivals & departures</span><strong>04</strong></div><div><span class="legend-dot amber-bg"></span><span>Other activity</span><strong>02</strong></div></div></div></section>
+        </div>
+        <footer class="footer-note"><span>✳</span> Sentinel Smart Surveillance <span class="footer-divider">·</span> Frontend prototype <span class="footer-right">All times shown in local time</span></footer>
+      </section>
+
+      <section class="page-view" id="page-cameras">
+        <div class="page-heading"><div><p class="eyebrow">MONITORING <span class="eyebrow-separator">/</span> CAMERA NETWORK</p><h1>Camera <span>overview.</span></h1><p class="subheading">Your connected views, organized in one place.</p></div><div class="heading-actions"><span class="last-updated"><span class="status-dot"></span> 4 cameras configured</span></div></div>
+        <div class="filter-bar"><div class="filter-description"><strong>All cameras</strong><span>4 devices · sample interface</span></div><select id="cameraFilter" aria-label="Filter cameras"><option value="all">All statuses</option><option value="online">Online</option><option value="offline">Offline</option></select></div>
+        <div class="camera-grid camera-grid-large" id="allCameras">
+          <article class="camera-card" data-status="online"><div class="camera-image scene-entry"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 01</span></div><div class="scene-label">FRONT ENTRANCE</div><div class="scene-door"></div><div class="scene-person"></div><div class="detection-box"></div></div><div class="camera-info"><div><h3>Front entrance</h3><p><span class="mini-dot green"></span> Online · 1080p · 24 FPS</p></div><button class="button button-secondary small" data-demo="camera">Open feed</button></div></article>
+          <article class="camera-card" data-status="online"><div class="camera-image scene-drive"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 02</span></div><div class="scene-label">DRIVEWAY</div><div class="drive-ground"></div><div class="drive-car"></div><div class="drive-tree"></div></div><div class="camera-info"><div><h3>Driveway</h3><p><span class="mini-dot green"></span> Online · 1080p · 24 FPS</p></div><button class="button button-secondary small" data-demo="camera">Open feed</button></div></article>
+          <article class="camera-card" data-status="online"><div class="camera-image scene-back"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 03</span></div><div class="scene-label">BACKYARD</div><div class="back-fence"></div><div class="back-person"></div></div><div class="camera-info"><div><h3>Backyard</h3><p><span class="mini-dot green"></span> Online · 720p · 20 FPS</p></div><button class="button button-secondary small" data-demo="camera">Open feed</button></div></article>
+          <article class="camera-card" data-status="online"><div class="camera-image scene-hall"><div class="camera-overlay"><span class="live-pill"><i></i> LIVE</span><span class="camera-time">CAM 04</span></div><div class="scene-label">LIVING ROOM</div><div class="hall-window"></div><div class="hall-sofa"></div><div class="hall-lamp"></div></div><div class="camera-info"><div><h3>Living room</h3><p><span class="mini-dot green"></span> Online · 1080p · 25 FPS</p></div><button class="button button-secondary small" data-demo="camera">Open feed</button></div></article>
+        </div>
+        <footer class="footer-note"><span>✳</span> Sentinel Smart Surveillance <span class="footer-divider">·</span> Frontend prototype</footer>
+      </section>
+
+      <section class="page-view" id="page-events">
+        <div class="page-heading"><div><p class="eyebrow">ACTIVITY CENTER <span class="eyebrow-separator">/</span> EVENT HISTORY</p><h1>Every moment, <span>accounted for.</span></h1><p class="subheading">Search activity and jump to the moment that matters.</p></div><div class="heading-actions"><button class="button button-secondary" id="exportEvents">↓ Export CSV</button></div></div>
+        <div class="event-stats"><div><span class="event-stat-label">Events today</span><strong id="eventCount">8</strong></div><div><span class="event-stat-label">Cameras involved</span><strong>4</strong></div><div><span class="event-stat-label">Need review</span><strong>2</strong></div><div><span class="event-stat-label">Latest activity</span><strong class="latest-time">4:18 PM</strong></div></div>
+        <div class="filter-bar event-filters"><div class="search-wrap"><span>⌕</span><input type="search" id="eventSearch" placeholder="Search events, cameras..." aria-label="Search events"></div><select id="eventTypeFilter" aria-label="Filter by event type"><option value="all">All event types</option><option value="arrival">Arrivals & departures</option><option value="person">Person detected</option><option value="delivery">Delivery</option><option value="alert">Security alerts</option></select><select id="eventCameraFilter" aria-label="Filter by camera"><option value="all">All cameras</option><option>Front entrance</option><option>Driveway</option><option>Backyard</option><option>Living room</option></select><input type="date" id="eventDateFilter" aria-label="Filter by date"></div>
+        <div class="timeline-layout"><div class="timeline-column"><div class="timeline-date"><span class="date-line"></span><span>TODAY · TUESDAY, OCT 13</span><span class="date-line"></span></div><div class="event-list full-events" id="eventList"></div><div class="empty-state hidden" id="emptyEvents"><span>⌕</span><h3>No events found</h3><p>Try adjusting your search or filters.</p><button class="button button-secondary" id="clearFilters">Clear filters</button></div></div>
+          <aside class="panel timeline-aside"><span class="aside-icon">◷</span><h3>Nothing slips by.</h3><p>Every detected moment is organized into a searchable timeline, so reviewing activity is simple.</p><div class="aside-divider"></div><div class="aside-stat"><span>Timeline coverage</span><strong>24 hours</strong></div><div class="aside-stat"><span>Clip retention</span><strong>30 days</strong></div><p class="aside-disclaimer">Demo values for prototype only. Recording and retention depend on future backend configuration.</p></aside>
+        </div>
+        <footer class="footer-note"><span>✳</span> Sentinel Smart Surveillance <span class="footer-divider">·</span> Event data is illustrative <span class="footer-right">Timestamps are sample values</span></footer>
+      </section>
+
+      <section class="page-view" id="page-recordings">
+        <div class="page-heading"><div><p class="eyebrow">VIDEO LIBRARY <span class="eyebrow-separator">/</span> FOOTAGE</p><h1>Find the <span>moment.</span></h1><p class="subheading">Browse recorded clips by date, camera, or event.</p></div><div class="heading-actions"><button class="button button-primary" id="uploadButton">＋ Add sample video</button><input type="file" id="videoUpload" accept="video/*" hidden></div></div>
+        <div class="recording-callout"><span class="callout-icon">▷</span><div><strong>Your footage library starts here.</strong><p>This prototype uses sample entries. Add a local video to preview it in this browser session.</p></div></div>
+        <div class="filter-bar"><div class="filter-description"><strong>Recent recordings</strong><span id="recordingCount">3 sample clips</span></div><select id="recordingCameraFilter"><option value="all">All cameras</option><option>Front entrance</option><option>Driveway</option><option>Backyard</option><option>Living room</option></select></div>
+        <div class="recording-grid" id="recordingGrid">
+          <article class="recording-card" data-camera="Front entrance"><div class="recording-thumb scene-entry"><span class="recording-duration">01:24</span><span class="recording-play">▷</span><span class="recording-camera-label">CAM 01</span></div><div class="recording-info"><h3>Delivery at the front door</h3><p>Front entrance <span>·</span> Today, 2:14 PM</p><button class="text-button recording-open" data-sample="delivery">View details →</button></div></article>
+          <article class="recording-card" data-camera="Driveway"><div class="recording-thumb scene-drive"><span class="recording-duration">00:48</span><span class="recording-play">▷</span><span class="recording-camera-label">CAM 02</span></div><div class="recording-info"><h3>Arrival at driveway</h3><p>Driveway <span>·</span> Today, 3:42 PM</p><button class="text-button recording-open" data-sample="arrival">View details →</button></div></article>
+          <article class="recording-card" data-camera="Backyard"><div class="recording-thumb scene-back"><span class="recording-duration">02:06</span><span class="recording-play">▷</span><span class="recording-camera-label">CAM 03</span></div><div class="recording-info"><h3>Backyard activity</h3><p>Backyard <span>·</span> Today, 4:18 PM</p><button class="text-button recording-open" data-sample="intrusion">View details →</button></div></article>
+        </div>
+        <div class="uploaded-preview hidden" id="uploadedPreview"><div class="uploaded-preview-head"><div><h2>Local video preview</h2><p>This file stays in your browser session; it isn't uploaded to a server.</p></div><button class="icon-button" id="closePreview" aria-label="Close video preview">×</button></div><video id="previewVideo" controls playsinline></video></div>
+        <footer class="footer-note"><span>✳</span> Sentinel Smart Surveillance <span class="footer-divider">·</span> Local prototype</footer>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="eventModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="event-modal"><button class="modal-close" id="closeModal" aria-label="Close details">×</button><div class="modal-preview scene-entry" id="modalPreview"><span class="modal-camera-tag">CAM 01</span><span class="modal-play">▷</span></div><div class="modal-body"><p class="eyebrow" id="modalEyebrow">EVENT DETAILS</p><h2 id="modalTitle">Delivery person detected</h2><p id="modalDescription"></p><div class="modal-meta"><div><span>Camera</span><strong id="modalCamera"></strong></div><div><span>Timestamp</span><strong id="modalTimestamp"></strong></div><div><span>Event type</span><strong id="modalType"></strong></div><div><span>Clip duration</span><strong id="modalDuration"></strong></div></div><p class="modal-note">This is mock event data. Video playback will be connected when the backend is implemented.</p></div></div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="script.js"></script>
+</body>
+</html>
