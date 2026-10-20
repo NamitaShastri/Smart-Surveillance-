@@ -1,4 +1,70 @@
-venv
-runs
+
+# ==========================================
+# 1. Python virtual environment
+# ==========================================
+venv/
+.venv/
+env/
+
+# ==========================================
+# 2. Python cache files
+# ==========================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# ==========================================
+# 3. Local database and database backups
+# ==========================================
+smart_surveillance.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ==========================================
+# 4. YOLO model weights
+# ==========================================
 yolo11n.pt
+*.onnx
+*.engine
+
+# ==========================================
+# 5. Generated detection and tracking results
+# ==========================================
+runs/
+output/
+outputs/
+recordings/
+
+# ==========================================
+# 6. Test videos and CCTV footage
+# ==========================================
 test_video.mp4
+*.avi
+*.mov
+*.mkv
+
+# ==========================================
+# 7. Environment variables and secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# 8. Logs and temporary files
+# ==========================================
+*.log
+*.tmp
+*.bak
+
+# ==========================================
+# 9. Editor and operating system files
+# ==========================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
