@@ -10,6 +10,18 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 
+from fastapi import UploadFile, File, Form
+from sqlalchemy.exc import SQLAlchemyError
+
+from .face_service import (
+    embedding_from_bytes,
+    embedding_to_bytes,
+    embedding_from_storage,
+    compare_vectors,
+)
+
+
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -264,3 +276,278 @@ def get_location_events(
         .order_by(models.DetectionEvent.timestamp.desc())
         .all()
     )
+
+
+
+# ---------------------------------------------------------
+# FACE ENROLLMENT API
+# ---------------------------------------------------------
+# Development prototype only.
+# Do not expose these endpoints to a network before adding
+# authentication, authorization, and appropriate protections.
+
+MAX_FACE_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_FACE_UPLOADS = 4
+
+
+
+@app.post("/face-profiles/{user_id}/enroll", status_code=201)
+async def enroll_face_profile(
+    user_id: int,
+    display_name: str = Form(..., min_length=1, max_length=100),
+    consent_given: bool = Form(...),
+    image: UploadFile = File(...),
+    relationship_label: str | None = Form(default=None, max_length=100),
+    source: str = Form(default="upload"),
+    db: Session = Depends(get_db),
+):
+    """Enroll one person using one uploaded or browser-captured image."""
+
+    if not consent_given:
+        raise HTTPException(
+            status_code=400,
+            detail="Explicit consent is required before enrollment.",
+        )
+
+    if source not in {"upload", "live_capture"}:
+        raise HTTPException(
+            status_code=400,
+            detail="source must be 'upload' or 'live_capture'.",
+        )
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail="Use a JPEG, PNG, or WebP image.",
+        )
+
+    user = db.query(models.User).filter(
+        models.User.id == user_id
+    ).first()
+
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    image_bytes = await image.read(MAX_FACE_UPLOAD_BYTES + 1)
+    await image.close()
+
+    if len(image_bytes) > MAX_FACE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Image must be no larger than 8 MB.",
+        )
+
+    try:
+        vector = embedding_from_bytes(image_bytes)
+        stored_vector = embedding_to_bytes(vector)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    profile = models.FaceProfile(
+        user_id=user_id,
+        display_name=display_name.strip(),
+        relationship_label=(
+            relationship_label.strip() if relationship_label else None
+        ),
+        consent_given=True,
+        is_active=True,
+    )
+
+    try:
+        db.add(profile)
+        db.flush()
+
+        sample = models.FaceSample(
+            profile_id=profile.id,
+            embedding=stored_vector,
+            source=source,
+        )
+
+        db.add(sample)
+        db.commit()
+        db.refresh(profile)
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the enrollment. No success was recorded.",
+        ) from exc
+
+    return {
+        "message": "Face sample enrolled.",
+        "profile_id": profile.id,
+        "user_id": profile.user_id,
+        "display_name": profile.display_name,
+        "source": source,
+        "samples_saved": 1,
+        "identity_verified": False,
+    }
+
+
+@app.get("/face-profiles/{user_id}")
+def list_face_profiles(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    """List profiles for a Sentinel user without returning embeddings."""
+
+    user = db.query(models.User).filter(
+        models.User.id == user_id
+    ).first()
+
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    profiles = (
+        db.query(models.FaceProfile)
+        .filter(models.FaceProfile.user_id == user_id)
+        .order_by(models.FaceProfile.id.asc())
+        .all()
+    )
+
+    return [
+        {
+            "profile_id": profile.id,
+            "display_name": profile.display_name,
+            "relationship_label": profile.relationship_label,
+            "is_active": profile.is_active,
+            "consent_given": profile.consent_given,
+            "created_at": profile.created_at,
+            "sample_count": len(profile.samples),
+        }
+        for profile in profiles
+    ]
+
+
+@app.post("/face-profiles/{user_id}/verify")
+async def compare_face_candidate(
+    user_id: int,
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Compare one face against enrolled samples for evaluation only.
+
+    This returns a ranked similarity candidate, NOT a verified identity.
+    It does not create CCTV events or authorize access.
+    """
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail="Use a JPEG, PNG, or WebP image.",
+        )
+
+    user = db.query(models.User).filter(
+        models.User.id == user_id
+    ).first()
+
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    image_bytes = await image.read(MAX_FACE_UPLOAD_BYTES + 1)
+    await image.close()
+
+    if len(image_bytes) > MAX_FACE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Image must be no larger than 8 MB.",
+        )
+
+    try:
+        query_vector = embedding_from_bytes(image_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    profiles = (
+        db.query(models.FaceProfile)
+        .filter(
+            models.FaceProfile.user_id == user_id,
+            models.FaceProfile.is_active.is_(True),
+            models.FaceProfile.consent_given.is_(True),
+        )
+        .all()
+    )
+
+    candidates = []
+
+    for profile in profiles:
+        best_score = None
+        usable_samples = 0
+
+        for sample in profile.samples:
+            try:
+                reference_vector = embedding_from_storage(sample.embedding)
+                score = compare_vectors(query_vector, reference_vector)
+            except (ValueError, TypeError):
+                continue
+
+            usable_samples += 1
+            if best_score is None or score > best_score:
+                best_score = score
+
+        if usable_samples and best_score is not None:
+            candidates.append({
+                "profile_id": profile.id,
+                "display_name": profile.display_name,
+                "similarity": round(float(best_score), 4),
+                "samples_compared": usable_samples,
+            })
+
+    candidates.sort(
+        key=lambda candidate: candidate["similarity"],
+        reverse=True,
+    )
+
+    return {
+        "message": (
+            "Similarity comparison complete. "
+            "Results are candidates, not identity verification."
+        ),
+        "user_id": user_id,
+        "identity_verified": False,
+        "candidates": candidates,
+    }
+
+
+@app.delete("/face-profiles/{user_id}/{profile_id}")
+def delete_face_profile(
+    user_id: int,
+    profile_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a profile and its samples from the database."""
+
+    profile = (
+        db.query(models.FaceProfile)
+        .filter(
+            models.FaceProfile.id == profile_id,
+            models.FaceProfile.user_id == user_id,
+        )
+        .first()
+    )
+
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Face profile not found for this user.",
+        )
+
+    try:
+        db.delete(profile)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Could not delete the face profile.",
+        ) from exc
+
+    return {
+        "message": "Face profile and its samples deleted.",
+        "profile_id": profile_id,
+        "user_id": user_id,
+    }

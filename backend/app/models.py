@@ -9,6 +9,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
+from sqlalchemy import LargeBinary, Boolean, Text
+
 from .database import Base
 
 
@@ -103,3 +105,66 @@ class DetectionEvent(Base):
 
     camera = relationship("Camera", back_populates="events")
 
+
+
+class FaceProfile(Base):
+    """A person enrolled for recognition within a Sentinel account."""
+
+    __tablename__ = "face_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    display_name = Column(String(100), nullable=False)
+    relationship_label = Column(String(100), nullable=True)
+
+    # Consent must be explicitly supplied at enrollment.
+    consent_given = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    owner = relationship("User")
+    samples = relationship(
+        "FaceSample",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+    )
+
+
+class FaceSample(Base):
+    """One encrypted-at-rest-by-the-host embedding sample is NOT implied.
+
+    Embeddings are stored as binary vectors. Production deployments
+    should additionally use protected storage and access controls.
+    """
+
+    __tablename__ = "face_samples"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(
+        Integer,
+        ForeignKey("face_profiles.id"),
+        nullable=False,
+        index=True,
+    )
+
+    embedding = Column(LargeBinary, nullable=False)
+    source = Column(String(20), nullable=False)  # upload or live_capture
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    profile = relationship("FaceProfile", back_populates="samples")

@@ -1,70 +1,124 @@
 
-# ==========================================
-# 1. Python virtual environment
-# ==========================================
+# ==============================
+# Python & Virtual Environments
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
 venv/
 .venv/
 env/
+ENV/
+pip-wheel-metadata/
 
-# ==========================================
-# 2. Python cache files
-# ==========================================
-__pycache__/
-**/__pycache__/
-*.py[cod]
-
-# ==========================================
-# 3. Local database and database backups
-# ==========================================
-smart_surveillance.db
-*.sqlite
-*.sqlite3
-*.db-journal
-*.db-wal
-*.db-shm
-
-# ==========================================
-# 4. YOLO model weights
-# ==========================================
-yolo11n.pt
-*.onnx
-*.engine
-
-# ==========================================
-# 5. Generated detection and tracking results
-# ==========================================
-runs/
-output/
-outputs/
-recordings/
-
-# ==========================================
-# 6. Test videos and CCTV footage
-# ==========================================
-test_video.mp4
-*.avi
-*.mov
-*.mkv
-
-# ==========================================
-# 7. Environment variables and secrets
-# ==========================================
+# ==============================
+# Environment Variables & Secrets
+# ==============================
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+service-account*.json
 
-# ==========================================
-# 8. Logs and temporary files
-# ==========================================
+# ==============================
+# Databases & Runtime Files
+# ==============================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+
+# ==============================
+# Face Recognition & Biometric Data
+# ==============================
+known_faces/
+face_images/
+face_samples/
+biometric_data/
+embeddings/
+*.embedding
+*.embeddings
+*.npy
+*.npz
+debug_img3.jpeg
+
+# ==============================
+# AI Models & Model Weights
+# ==============================
+*.pt
+*.pth
+*.onnx
+*.weights
+*.engine
+*.tflite
+models_cache/
+insightface/
+.buffalo_l/
+
+# ==============================
+# CCTV Videos & Generated Output
+# ==============================
+*.mp4
+*.avi
+*.mov
+*.mkv
+recordings/
+videos/
+runs/
+output/
+outputs/
+annotated/
+screenshots/
+
+# ==============================
+# Logs & Temporary Files
+# ==============================
 *.log
+logs/
+tmp/
+temp/
 *.tmp
 *.bak
-
-# ==========================================
-# 9. Editor and operating system files
-# ==========================================
-.vscode/
-.idea/
+*.swp
 .DS_Store
 Thumbs.db
-desktop.ini
+
+# ==============================
+# Editors & IDEs
+# ==============================
+.vscode/
+.idea/
+*.code-workspace
+
+# ==============================
+# Testing & Coverage
+# ==============================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+
+# ==============================
+# Node.js (if added later)
+# ==============================
+node_modules/
+dist/
+build/
+.npm/
+
+# ==============================
+# Frontend Local Configuration
+# ==============================
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
