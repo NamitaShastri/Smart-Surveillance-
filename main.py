@@ -1,11 +1,13 @@
-
 from ultralytics import YOLO
 import requests
 import hashlib
+import os
 import cv2
 
 from pathlib import Path
 from insightface.app import FaceAnalysis
+
+from convert_recordings import convert_recordings_to_mp4
 
 # ---------------- CONFIGURATION ----------------
 
@@ -27,6 +29,13 @@ USER_ID = 1
 API_BASE = "http://127.0.0.1:8000"
 API_URL = f"{API_BASE}/cameras/{CAMERA_ID}/events"
 VERIFY_URL = f"{API_BASE}/face-profiles/{USER_ID}/verify"
+
+# Shared secret for the backend (set SENTINEL_PIPELINE_KEY in both places).
+PIPELINE_KEY = os.getenv("SENTINEL_PIPELINE_KEY")
+API_HEADERS = {"X-API-Key": PIPELINE_KEY} if PIPELINE_KEY else {}
+
+# Recordings go to runs/detect/camera_<id>/ so the dashboard can filter by camera.
+RUNS_DIR = Path(__file__).resolve().parent / "runs" / "detect"
 
 # Provisional demo threshold only; not a validated identity threshold.
 FACE_SIMILARITY_THRESHOLD = 0.60
@@ -113,6 +122,7 @@ def recognize_person(frame, person_box, detected_faces):
                     "image/jpeg",
                 )
             },
+            headers=API_HEADERS,
             timeout=15,
         )
 
@@ -182,6 +192,9 @@ results = model.track(
     classes=[0],
     conf=0.25,
     save=True,
+    project=str(RUNS_DIR),
+    name=f"camera_{CAMERA_ID}",
+    exist_ok=True,
     show=False,
     persist=True,
     verbose=False,
@@ -264,6 +277,7 @@ for result in results:
             response = requests.post(
                 API_URL,
                 json=payload,
+                headers=API_HEADERS,
                 timeout=5,
             )
             response.raise_for_status()
@@ -291,8 +305,11 @@ for result in results:
                 f"Could not save event for track {track_id}: {error}"
             )
 
+# Make the saved video playable in the browser (.avi -> .mp4).
+convert_recordings_to_mp4(RUNS_DIR / f"camera_{CAMERA_ID}")
+
 print("\nPerson tracking and recognition finished!")
 print(f"New events created: {events_created}")
 print(f"Duplicates skipped: {duplicates_skipped}")
 print(f"Failed events: {failed_events}")
-print("Check the runs/detect/track folder for your output video.")
+print(f"Check {RUNS_DIR / f'camera_{CAMERA_ID}'} for your output video.")

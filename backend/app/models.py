@@ -21,6 +21,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=True)
 
     locations = relationship(
         "Location",
@@ -35,6 +36,7 @@ class Location(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     address = Column(String(255), nullable=True)
+    type = Column(String(30), nullable=False, default="Home", server_default="Other")
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 

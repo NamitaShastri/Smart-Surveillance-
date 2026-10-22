@@ -1,22 +1,31 @@
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = window.SENTINEL_API_BASE || "http://127.0.0.1:8000";
 
-const ACTIVE_USER_ID = 1;
-const ACTIVE_LOCATION_ID = 1;
+
+let authToken = null;
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-    },
-  });
+  const headers = { ...(options.headers || {}) };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`API ${response.status}: ${message}`);
+    if (response.status === 401 && authToken) {
+      endSession();
+      showToast("Your session expired. Please sign in again.");
+    }
+    const raw = await response.text();
+    let message = raw;
+    try {
+      const detail = JSON.parse(raw).detail;
+      message = Array.isArray(detail) ? detail.map((d) => d.msg).join("; ") : detail || raw;
+    } catch {}
+    const error = new Error(message || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -35,116 +44,13 @@ function formatEventTime(timestamp) {
   });
 }
 
-function mapBackendEvent(event) {
-  const label = event.person_label || "Unknown person";
-  const type = event.event_type || "person_detected";
-  const isRecognized = label !== "Unknown person" && !label.startsWith("DEMO CANDIDATE:");
 
-  return {
-    id: event.id,
-    timestamp: event.timestamp,
-    time: formatEventTime(event.timestamp),
-    title:
-      type === "person_detected"
-        ? isRecognized
-          ? `${label} detected`
-          : "Person detected"
-        : type.replaceAll("_", " "),
-    detail: event.details || "Person detection event.",
-    camera: `Camera ${event.camera_id ?? "Unknown"}`,
-    type: "person",
-    icon: "♙",
-    color: "purple",
-    recording: false,
-    personLabel: label,
-    identityVerified: isRecognized,
-  };
-}
 
-async function loadBackendEvents({ silent = false } = {}) {
-  if (eventsLoading) return;
 
-  eventsLoading = true;
-  eventsError = "";
-
-  const timeline = $("#eventTimeline");
-
-  // Don't replace the timeline with a loading screen on every poll.
-  if (!silent && timeline) {
-    timeline.innerHTML = `
-      <div class="empty-state">
-        <strong>Loading events…</strong>
-        <p>Fetching saved CCTV events.</p>
-      </div>
-    `;
-  }
-
-  // Keep the rest of your existing try/catch/finally code here.
-
-  try {
-    const data = await apiRequest(`/locations/${ACTIVE_LOCATION_ID}/events`);
-
-    const rows = Array.isArray(data) ? data : Array.isArray(data?.events) ? data.events : null;
-
-    if (!rows) {
-      throw new Error("Unexpected events response. Check the endpoint response in Swagger.");
-    }
-
-    events = rows.map(mapBackendEvent);
-
-    // Newest events first.
-
-    events.sort((a, b) => {
-      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    });
-
-    renderRecent();
-    renderEvents();
-
-    const total = $("#overviewEventCount");
-    if (total) total.textContent = String(events.length);
-  } catch (error) {
-    eventsError = error.message;
-    console.error("Could not load backend events:", error);
-
-    if (timeline) {
-      timeline.innerHTML = `
-        <div class="empty-state">
-          <strong>Couldn't load CCTV events</strong>
-          <p>${escapeHtml(eventsError)}</p>
-          <button class="primary-btn" id="retryEventsBtn" type="button">
-            Try again
-          </button>
-        </div>
-      `;
-
-      $("#retryEventsBtn")?.addEventListener("click", loadBackendEvents);
-    }
-  } finally {
-    eventsLoading = false;
-  }
-}
 
 let timelineRefreshTimer = null;
 
-function startTimelineAutoRefresh() {
-  if (timelineRefreshTimer !== null) return;
 
-  timelineRefreshTimer = setInterval(() => {
-    const eventsPage = $("#page-events");
-    const appShell = $("#appShell");
-
-    // Poll only while the Events page is visible.
-    if (
-      eventsPage?.classList.contains("active") &&
-      appShell &&
-      !appShell.classList.contains("hidden") &&
-      !document.hidden
-    ) {
-      loadBackendEvents({ silent: true });
-    }
-  }, 5000);
-}
 
 function stopTimelineAutoRefresh() {
   if (timelineRefreshTimer !== null) {
@@ -155,8 +61,7 @@ function stopTimelineAutoRefresh() {
 
 let cameras = [];
 let sites = [];
-let cameraIdCounter = 5;
-let currentUser = { name: "Namita Shastri", email: "Namita@example.com" };
+let currentUser = { id: null, name: "", email: "" };
 let selectedHour = null,
   localVideoUrl = null,
   toastTimer;
@@ -243,62 +148,9 @@ function goPage(page) {
   if (page === "recordings") renderHours();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function loadUserCameraData(email) {
-  const key = "sentinel-camera-data:" + email.toLowerCase();
-  try {
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      const data = JSON.parse(saved);
-      cameras = Array.isArray(data.cameras) ? data.cameras : [];
-      sites = Array.isArray(data.sites) ? data.sites : [];
-    } 
-    else {
-      cameras = [];
-      sites = [];
-    }
-  } catch {
-    cameras = [];
-    sites = [];
-  }
-  cameraIdCounter = Math.max(
-    1,
-    ...cameras.map((c) => Number(String(c.id || "").replace(/\D/g, "")) + 1 || 1),
-  );
-}
-function saveUserCameraData() {
-  try {
-    localStorage.setItem(
-      "sentinel-camera-data:" + currentUser.email.toLowerCase(),
-      JSON.stringify({
-        cameras: cameras.map(
-          ({ name, id, quality, scene, status, location, siteName, siteType, sourceType }) => ({
-            name,
-            id,
-            quality,
-            scene,
-            status,
-            location,
-            siteName,
-            siteType,
-            sourceType,
-          }),
-        ),
-        sites,
-      }),
-    );
-  } catch {
-    showToast("Could not save camera list in this browser.");
-  }
-}
-function showApp(user) {
-  currentUser = user;
-  loadUserCameraData(user.email);
-  syncUser();
-  $("#authScreen").classList.add("hidden");
-  $("#appShell").classList.remove("hidden");
-  renderCameras();
-  goPage("overview");
-}
+
+
+
 function showAuth() {
   $("#appShell").classList.add("hidden");
   $("#authScreen").classList.remove("hidden");
@@ -311,182 +163,15 @@ function authTab(tab) {
   $("#authMessage").textContent = "";
   $("#signUpMessage").textContent = "";
 }
-function renderCameraCard(c, i) {
-  const scene = c.scene || "preview-front";
-  return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${c.sourceType === "file" ? "TEST SOURCE" : "DEMO FEED"}</span><span class="camera-overlay">${escapeHtml(c.id)}</span><div class="${scene === "preview-drive" ? "scene-road" : scene === "preview-back" ? "scene-garden" : "scene-door"}"></div></div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${c.status === "online" ? "online-dot" : "offline-dot"}"></span> ${c.status === "online" ? "Online" : "Not connected"} · ${escapeHtml(c.quality || "Quality not checked")} · ${escapeHtml(c.location || c.siteName || "Location not set")}</small><small class="camera-site-label">⌂ ${escapeHtml(c.siteName || "Unassigned")} · ${escapeHtml(c.siteType || "Location")}</small></div><button class="dots-btn camera-more" data-camera-index="${i}">•••</button></div><div class="camera-info camera-extra"><span class="muted" style="font-size:10px">${c.sourceType === "file" ? "Test source only" : "Connection setup pending backend"}</span><button class="text-btn remove-camera-btn" data-remove-camera="${i}">Remove</button></div></article>`;
-}
-function renderCameras(filter = "all", query = "") {
-  const grid = $("#allCamerasGrid");
-  if (!grid) return;
-  const list = cameras.filter(
-    (c) =>
-      (filter === "all" || c.status === filter) &&
-      `${c.name} ${c.id} ${c.location} ${c.siteName} ${c.siteType}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
-  $("#cameraEmptyState").classList.toggle("hidden", cameras.length > 0);
-  grid.classList.toggle("hidden", cameras.length === 0);
-  $("#cameraNavCount").textContent = cameras.length;
-  $("#cameraWelcomeTitle").textContent = cameras.length
-    ? `Welcome back, ${currentUser.name.split(" ")[0]}`
-    : "Welcome to your security workspace";
-  $("#cameraWelcomeText").textContent = cameras.length
-    ? `${cameras.length} camera${cameras.length === 1 ? "" : "s"} listed across ${sites.length} location${sites.length === 1 ? "" : "s"}. Connection status is demo data until the backend is connected.`
-    : "Start by adding a location and connecting your first CCTV. You can manage home, office, shop, and other sites from this page.";
-  renderSites();
-  grid.innerHTML = list.map(renderCameraCard).join("");
-  if (cameras.length && list.length === 0)
-    grid.innerHTML =
-      '<div class="empty-state"><strong>No cameras match</strong><p>Try another search or filter.</p></div>';
-  $$(".remove-camera-btn").forEach((b) =>
-    b.addEventListener("click", () => {
-      const i = Number(b.dataset.removeCamera);
-      if (!Number.isNaN(i)) {
-        const name = cameras[i]?.name;
-        cameras.splice(i, 1);
-        saveUserCameraData();
-        renderCameras();
-        showToast(`${name || "Camera"} removed from this demo list.`);
-      }
-    }),
-  );
-  $$(".camera-more").forEach((b) =>
-    b.addEventListener("click", () => {
-      const c = cameras[Number(b.dataset.cameraIndex)];
-      if (c)
-        openModal(
-          "Camera details",
-          `<p><strong>${escapeHtml(c.name)}</strong></p><p>Location: ${escapeHtml(c.siteName || "Unassigned")} · ${escapeHtml(c.siteType || "Location")}</p><p>Source: ${escapeHtml(c.sourceType || "Not configured")}</p><p>Actual camera connection will be verified by the backend in a later phase.</p><button class="primary-btn close-modal-action" type="button">Close</button>`,
-        );
-    }),
-  );
-}
-function renderSites() {
-  const wrap = $("#cameraSites");
-  if (!wrap) return;
-  if (!sites.length) {
-    wrap.innerHTML = "";
-    wrap.classList.add("hidden");
-    return;
-  }
-  wrap.classList.remove("hidden");
-  wrap.innerHTML = sites
-    .map((site, index) => {
-      const cams = cameras.filter((c) => c.siteName === site.name);
-      return `<article class="site-card"><div class="site-card-top"><div class="site-icon">${site.type === "Office" ? "▥" : site.type === "Shop" ? "▣" : site.type === "Warehouse" ? "▤" : "⌂"}</div><div class="site-title"><strong>${escapeHtml(site.name)}</strong><span>${escapeHtml(site.type)} · ${cams.length} camera${cams.length === 1 ? "" : "s"}</span></div><button class="site-add-camera text-btn" data-site-index="${index}">＋ Add camera</button></div><div class="site-camera-summary">${cams.length ? cams.map((c) => `<span class="site-camera-chip"><i class="${c.status === "online" ? "online-dot" : "offline-dot"}"></i>${escapeHtml(c.name)}</span>`).join("") : '<span class="muted">No cameras added at this location yet.</span>'}</div></article>`;
-    })
-    .join("");
-  $$(".site-add-camera").forEach((b) =>
-    b.addEventListener("click", () =>
-      openAddCameraModal(sites[Number(b.dataset.siteIndex)]?.name || ""),
-    ),
-  );
-}
-function openAddCameraModal(preselectedSite = "") {
-  const siteOptions = sites
-    .map(
-      (s) =>
-        `<option value="${escapeHtml(s.name)}" ${s.name === preselectedSite ? "selected" : ""}>${escapeHtml(s.name)} (${escapeHtml(s.type)})</option>`,
-    )
-    .join("");
-  openModal(
-    "Add CCTV",
-    `<p class="modal-intro">Register a camera for a home, office, shop, or other location. This demo saves its label only; it does not connect to the live stream yet.</p><form id="connectCameraForm" class="connect-camera-form"><label>Camera name<input id="newCameraName" required maxlength="60" placeholder="e.g. Reception camera"></label><label>Location<select id="newCameraSite" required>${siteOptions || '<option value="">Add a location first</option>'}</select></label><label>Connection method<select id="newCameraType"><option value="rtsp">IP camera / DVR / NVR (RTSP)</option><option value="file">Local video test source</option><option value="agent">Local agent (future)</option></select></label><label>Camera area<input id="newCameraArea" placeholder="e.g. Front entrance" maxlength="80"></label><div class="notice-strip"><span class="notice-icon">ⓘ</span><div><strong>Connection not tested yet</strong><p>We will add secure stream setup and connection testing with the backend. Do not enter camera passwords in this prototype.</p></div></div><button class="primary-btn full-btn" type="submit">Save camera details <span>→</span></button><p id="connectCameraMessage" class="auth-message" role="status"></p></form>`,
-  );
-  const form = $("#connectCameraForm");
-  if (!form) return;
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = $("#newCameraName").value.trim(),
-      siteName = $("#newCameraSite").value,
-      sourceType = $("#newCameraType").value,
-      area = $("#newCameraArea").value.trim();
-    if (!name || !siteName) {
-      $("#connectCameraMessage").textContent = "Add a location first, then enter a camera name.";
-      return;
-    }
-    const site = sites.find((s) => s.name === siteName);
-    cameras.push({
-      name,
-      id: `CAM ${String(cameraIdCounter++).padStart(2, "0")}`,
-      quality: sourceType === "file" ? "Test source" : "Pending",
-      scene: "preview-front",
-      status: "offline",
-      location: area || siteName,
-      siteName,
-      siteType: site?.type || "Location",
-      sourceType,
-    });
-    saveUserCameraData();
-    $("#modalBackdrop").classList.add("hidden");
-    renderCameras();
-    showToast(`${name} added to ${siteName}. Live connection is not active yet.`);
-  });
-}
-function openAddSiteModal() {
-  openModal(
-    "Add a location",
-    `<p>Create a separate space for each property or business site.</p><form id="addSiteForm" class="connect-camera-form"><label>Location name<input id="newSiteName" required maxlength="60" placeholder="e.g. City Office"></label><label>Location type<select id="newSiteType"><option>Home</option><option>Office</option><option>Shop</option><option>Warehouse</option><option>Other</option></select></label><button class="primary-btn full-btn" type="submit">Create location <span>→</span></button><p id="addSiteMessage" class="auth-message" role="status"></p></form>`,
-  );
-  $("#addSiteForm")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = $("#newSiteName").value.trim(),
-      type = $("#newSiteType").value;
-    if (!name) return;
-    if (sites.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
-      $("#addSiteMessage").textContent = "A location with this name already exists.";
-      return;
-    }
-    sites.push({ name, type });
-    saveUserCameraData();
-    $("#modalBackdrop").classList.add("hidden");
-    renderCameras();
-    showToast(`${name} location added.`);
-  });
-}
 
-function eventMarkup(e, compact = false) {
-  return `<div class="${compact ? "event-row" : "timeline-item"}">${compact ? `<div class="event-symbol ${e.color}">${e.icon}</div><div class="event-row-main"><strong>${e.title}</strong><p>${e.camera} · ${e.detail}</p></div><span class="event-time">${e.time}</span>` : `<div class="timeline-time">${e.time}</div><div class="timeline-rail"><span class="timeline-dot ${e.color}">${e.icon}</span></div><div class="timeline-content"><div><strong>${e.title}</strong><p>${e.detail}</p><div class="timeline-tags"><span class="timeline-tag">▣ ${e.camera}</span><span class="timeline-tag">${e.type === "person" ? "Person detection" : e.type === "delivery" ? "Delivery" : e.type === "arrival" ? "Arrival / departure" : "Motion detection"}</span></div></div>${e.recording ? `<button class="timeline-recording" data-event-time="${e.time}" data-event-camera="${e.camera}">▶ View footage</button>` : ""}</div>`}</div>`;
-}
-function renderRecent() {
-  $("#recentEvents").innerHTML = events
-    .slice(0, 4)
-    .map((e) => eventMarkup(e, true))
-    .join("");
-}
-function renderEvents() {
-  const q = ($("#eventSearch")?.value || "").toLowerCase(),
-    type = $("#eventTypeFilter")?.value || "all";
-  const filtered = events.filter(
-    (e) =>
-      (type === "all" || e.type === type) &&
-      `${e.title} ${e.detail} ${e.camera}`.toLowerCase().includes(q),
-  );
-  $("#eventTimeline").innerHTML = filtered.map((e) => eventMarkup(e, false)).join("");
-  $("#eventCount").textContent = `${filtered.length} event${filtered.length === 1 ? "" : "s"}`;
-  $("#noEvents").classList.toggle("hidden", filtered.length > 0);
-  const date = $("#eventDateFilter").value;
-  if (date) {
-    const d = new Date(date + "T12:00:00");
-    $("#timelineDateTitle").textContent = d.toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-    $(".date-marker").textContent = d.getDate();
-  }
-  $$(".timeline-recording").forEach((b) =>
-    b.addEventListener("click", () => {
-      goPage("recordings");
-      $("#archiveCamera").value = b.dataset.eventCamera;
-      $("#playCamera").textContent = b.dataset.eventCamera;
-      const [h] = b.dataset.eventTime.split(":").map(Number);
-      const idx = hours.findIndex((x) => x.start === h);
-      selectHour(idx >= 0 ? idx : hours.findIndex((x) => x.clips > 0));
-    }),
-  );
-}
+
+
+
+
+
+
+
+
 function hourLabel(h) {
   const fmt = (n) => `${String(n % 24).padStart(2, "0")}:00`;
   return `${fmt(h.start)} – ${fmt(h.end)}`;
@@ -504,16 +189,16 @@ async function renderHours() {
     }
 
     const list = $("#hourlyList");
+    const cameraId = Number($("#archiveCamera").value);
+    if (!cameraId) {
+      list.innerHTML = `<p>Add a camera first to browse its recordings.</p>`;
+      $("#archiveSummaryText").textContent = "No cameras";
+      return;
+    }
     list.innerHTML = `<p>Loading saved recordings...</p>`;
 
     try {
-        const response = await fetch(`${API_BASE}/recordings`);
-
-        if (!response.ok) {
-            throw new Error(`API returned ${response.status}`);
-        }
-
-        archiveRecordings = await response.json();
+        archiveRecordings = await apiRequest(`/recordings?camera_id=${cameraId}`);
 
         // Keep recordings belonging to the selected calendar date.
         const dailyRecordings = archiveRecordings.filter(recording => {
@@ -619,7 +304,7 @@ function selectHour(index) {
   const h = archiveHours[index];
   if (!h) return;
 
-  const cam = $("#archiveCamera").value;
+  const cam = $("#archiveCamera").selectedOptions[0]?.textContent || "";
   const stage = $("#videoStage");
 
   $("#playCamera").textContent = cam;
@@ -742,7 +427,7 @@ async function loadKnownPeople() {
   }
 
   try {
-    const data = await apiRequest(`/face-profiles/${ACTIVE_USER_ID}`);
+    const data = await apiRequest(`/face-profiles/${currentUser.id}`);
 
     knownPeople = Array.isArray(data) ? data : Array.isArray(data?.profiles) ? data.profiles : null;
 
@@ -816,7 +501,7 @@ async function enrollKnownPerson(event) {
   message.textContent = "Enrolling face profile…";
 
   try {
-    const result = await apiRequest(`/face-profiles/${ACTIVE_USER_ID}/enroll-multi`, {
+    const result = await apiRequest(`/face-profiles/${currentUser.id}/enroll-multi`, {
       method: "POST",
       body: formData,
     });
@@ -846,7 +531,7 @@ async function deleteKnownPerson(profileId) {
   }
 
   try {
-    await apiRequest(`/face-profiles/${ACTIVE_USER_ID}/${encodeURIComponent(profileId)}`, {
+    await apiRequest(`/face-profiles/${currentUser.id}/${encodeURIComponent(profileId)}`, {
       method: "DELETE",
     });
 
@@ -858,6 +543,389 @@ async function deleteKnownPerson(profileId) {
   }
 }
 
+/* ---------- helpers, session and workspace loading ---------- */
+const readJson = (key, fallback) => {
+  try {
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeJson = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+const postJson = (body) => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+const dayKey = (d) => {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+};
+const isOnline = (c) =>
+  ["online", "active", "connected", "running"].includes(String(c.status || "").toLowerCase());
+const camLabel = (c) => `CAM ${String(c.id).padStart(2, "0")}`;
+const maskSource = (s) => String(s || "Not set").replace(/\/\/[^/@]*@/, "//•••@");
+const SCENES = ["preview-drive", "preview-front", "preview-back"];
+const sceneOf = (i) => SCENES[i % SCENES.length];
+
+async function loadWorkspace() {
+  const locs = await apiRequest(`/users/${currentUser.id}/locations`);
+  sites = locs.map((l) => ({ id: l.id, name: l.name, address: l.address, type: l.type || "Other" }));
+  const lists = await Promise.all(sites.map((s) => apiRequest(`/locations/${s.id}/cameras`)));
+  cameras = lists.flatMap((list, i) =>
+    list.map((c) => ({
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      source: c.source,
+      siteId: sites[i].id,
+      siteName: sites[i].name,
+      siteType: sites[i].type,
+    })),
+  );
+}
+
+async function refreshWorkspace() {
+  try {
+    await loadWorkspace();
+  } catch (error) {
+    console.error("Could not load workspace:", error);
+    showToast("Couldn't load your locations. Is the backend running?");
+  }
+  renderCameras();
+  fillArchiveCameras();
+  await Promise.all([loadBackendEvents({ silent: true }), loadRecordingCount(), checkHealth()]);
+  renderOverview();
+}
+
+async function checkHealth() {
+  let ok = false;
+  try {
+    await apiRequest("/health");
+    ok = true;
+  } catch {}
+  $("#sysStatusText").textContent = ok ? "Backend online" : "Backend unreachable";
+  $("#statBackend").textContent = ok ? "Online" : "Offline";
+}
+
+async function loadRecordingCount() {
+  try {
+    const list = await apiRequest("/recordings");
+    $("#statRecs").textContent = Array.isArray(list) ? list.length : 0;
+  } catch {
+    $("#statRecs").textContent = "—";
+  }
+}
+
+function fillArchiveCameras() {
+  const sel = $("#archiveCamera");
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = cameras.length
+    ? cameras.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
+    : '<option value="">No cameras yet</option>';
+  if (cameras.some((c) => String(c.id) === prev)) sel.value = prev;
+  $("#playCamera").textContent = sel.selectedOptions[0]?.textContent || "—";
+}
+
+function renderOverview() {
+  const now = new Date();
+  const first = (currentUser.name || "").split(" ")[0];
+  const part = now.getHours() < 12 ? "morning" : now.getHours() < 17 ? "afternoon" : "evening";
+  $("#greetingText").textContent = `Good ${part}${first ? ", " + first : ""}`;
+  $("#todayLabel").textContent = now
+    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    .toUpperCase();
+
+  const online = cameras.filter(isOnline).length;
+  $("#statCams").textContent = cameras.length;
+  $("#statCamsSub").textContent = `/ ${online} online`;
+  $("#statCamsFoot").textContent = !cameras.length
+    ? "No cameras yet"
+    : online === cameras.length
+      ? "● All connected"
+      : `● ${cameras.length - online} not connected`;
+  $("#statSites").textContent = `${sites.length} location${sites.length === 1 ? "" : "s"}`;
+
+  const today = dayKey(now);
+  const yesterday = dayKey(new Date(now.getTime() - 864e5));
+  const todayCount = events.filter((e) => dayKey(e.timestamp) === today).length;
+  const yCount = events.filter((e) => dayKey(e.timestamp) === yesterday).length;
+  const delta = todayCount - yCount;
+  $("#statEvents").textContent = todayCount;
+  $("#statEventsDelta").textContent = delta === 0 ? "±0" : delta > 0 ? `+${delta}` : String(delta);
+  $("#eventNavCount").textContent = todayCount;
+
+  $("#overviewCameras").innerHTML = cameras.length
+    ? cameras
+        .slice(0, 6)
+        .map((c, i) => {
+          const scene = sceneOf(i);
+          const art = scene === "preview-drive" ? "scene-road" : scene === "preview-back" ? "scene-garden" : "scene-door";
+          return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span><div class="${art}"></div></div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : "Not connected"} · ${escapeHtml(c.siteName)}</small></div></div></article>`;
+        })
+        .join("")
+    : '<div class="empty-state"><strong>No cameras yet</strong><p>Add a location and a camera on the Connect CCTV page.</p></div>';
+}
+
+/* ---------- events ---------- */
+function mapBackendEvent(event) {
+  const label = event.person_label || "Unknown person";
+  const type = event.event_type || "person_detected";
+  const known = label !== "Unknown person" && !label.startsWith("DEMO CANDIDATE:");
+  const cam = cameras.find((c) => c.id === event.camera_id);
+  const isPerson = type === "person_detected";
+  const confidence = typeof event.confidence === "number" ? ` · ${Math.round(event.confidence * 100)}% confidence` : "";
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    time: formatEventTime(event.timestamp),
+    title: isPerson ? (known ? `${label} detected` : "Person detected") : type.replaceAll("_", " "),
+    detail: (event.details || (isPerson ? "Person detection event." : "Detection event.")) + confidence,
+    camera: cam ? cam.name : `Camera ${event.camera_id ?? "Unknown"}`,
+    type: known ? "known" : isPerson ? "unknown" : "other",
+    icon: isPerson ? "♙" : "◉",
+    color: known ? "green" : isPerson ? "purple" : "amber",
+    recording: false,
+  };
+}
+
+async function loadBackendEvents({ silent = false } = {}) {
+  if (eventsLoading || !currentUser.id) return;
+  eventsLoading = true;
+  eventsError = "";
+  const timeline = $("#eventTimeline");
+  if (!silent && timeline) {
+    timeline.innerHTML = `<div class="empty-state"><strong>Loading events…</strong><p>Fetching saved CCTV events.</p></div>`;
+  }
+  try {
+    const lists = await Promise.all(sites.map((s) => apiRequest(`/locations/${s.id}/events`)));
+    events = lists
+      .flatMap((d) => (Array.isArray(d) ? d : d?.events || []))
+      .map(mapBackendEvent)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    renderRecent();
+    renderEvents();
+    renderOverview();
+  } catch (error) {
+    eventsError = error.message;
+    console.error("Could not load backend events:", error);
+    if (timeline) {
+      timeline.innerHTML = `<div class="empty-state"><strong>Couldn't load CCTV events</strong><p>${escapeHtml(eventsError)}</p><button class="primary-btn" id="retryEventsBtn" type="button">Try again</button></div>`;
+      $("#retryEventsBtn")?.addEventListener("click", () => loadBackendEvents());
+    }
+  } finally {
+    eventsLoading = false;
+  }
+}
+
+function startTimelineAutoRefresh() {
+  if (timelineRefreshTimer !== null) return;
+  let ticks = 0;
+  timelineRefreshTimer = setInterval(() => {
+    if ($("#appShell").classList.contains("hidden") || document.hidden || !currentUser.id) return;
+    ticks++;
+    if ($("#page-events").classList.contains("active") || $("#page-overview").classList.contains("active")) {
+      loadBackendEvents({ silent: true });
+    }
+    if (ticks % 6 === 0) checkHealth();
+  }, 5000);
+}
+
+const EVENT_TAGS = { known: "Known person", unknown: "Unknown person", other: "Detection event" };
+
+function eventMarkup(e, compact = false) {
+  const title = escapeHtml(e.title),
+    detail = escapeHtml(e.detail),
+    camera = escapeHtml(e.camera);
+  return `<div class="${compact ? "event-row" : "timeline-item"}">${
+    compact
+      ? `<div class="event-symbol ${e.color}">${e.icon}</div><div class="event-row-main"><strong>${title}</strong><p>${camera} · ${detail}</p></div><span class="event-time">${e.time}</span>`
+      : `<div class="timeline-time">${e.time}</div><div class="timeline-rail"><span class="timeline-dot ${e.color}">${e.icon}</span></div><div class="timeline-content"><div><strong>${title}</strong><p>${detail}</p><div class="timeline-tags"><span class="timeline-tag">▣ ${camera}</span><span class="timeline-tag">${EVENT_TAGS[e.type] || "Event"}</span></div></div></div>`
+  }</div>`;
+}
+
+function renderRecent() {
+  $("#recentEvents").innerHTML = events.length
+    ? events.slice(0, 4).map((e) => eventMarkup(e, true)).join("")
+    : '<div class="empty-state"><strong>No events yet</strong><p>Detections from your cameras will show up here.</p></div>';
+}
+
+function renderEvents() {
+  const q = ($("#eventSearch")?.value || "").toLowerCase();
+  const type = $("#eventTypeFilter")?.value || "all";
+  const date = $("#eventDateFilter").value;
+  const day = date ? events.filter((e) => dayKey(e.timestamp) === date) : events;
+  const filtered = day.filter(
+    (e) => (type === "all" || e.type === type) && `${e.title} ${e.detail} ${e.camera}`.toLowerCase().includes(q),
+  );
+  $("#eventTimeline").innerHTML = filtered.map((e) => eventMarkup(e, false)).join("");
+  $("#eventCount").textContent = `${filtered.length} event${filtered.length === 1 ? "" : "s"}`;
+  $("#noEvents").classList.toggle("hidden", filtered.length > 0);
+  $("#evStatTotal").textContent = day.length;
+  $("#evStatKnown").textContent = day.filter((e) => e.type === "known").length;
+  $("#evStatUnknown").textContent = day.filter((e) => e.type === "unknown").length;
+  $("#evStatOther").textContent = day.filter((e) => e.type === "other").length;
+  if (date) {
+    const d = new Date(date + "T12:00:00");
+    $("#timelineDateTitle").textContent = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    $(".date-marker").textContent = d.getDate();
+  }
+}
+
+/* ---------- session ---------- */
+async function showApp(user) {
+  currentUser = user;
+  syncUser();
+  $("#authScreen").classList.add("hidden");
+  $("#appShell").classList.remove("hidden");
+  goPage("overview");
+  await refreshWorkspace();
+}
+
+async function startSession({ access_token, user }) {
+  authToken = access_token;
+  writeJson("sentinel-session", { token: access_token });
+  await showApp(user);
+}
+
+function endSession() {
+  authToken = null;
+  localStorage.removeItem("sentinel-session");
+  currentUser = { id: null, name: "", email: "" };
+  cameras = [];
+  sites = [];
+  events = [];
+  showAuth();
+  authTab("signin");
+  $("#signInPassword").value = "";
+}
+
+/* ---------- cameras and locations ---------- */
+function renderCameraCard(c, i) {
+  const scene = sceneOf(i);
+  const art = scene === "preview-drive" ? "scene-road" : scene === "preview-back" ? "scene-garden" : "scene-door";
+  return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span><div class="${art}"></div></div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : escapeHtml(c.status || "Not connected")}</small><small class="camera-site-label">⌂ ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</small></div><button class="dots-btn camera-more" data-camera-index="${i}">•••</button></div><div class="camera-info camera-extra"><span class="muted" style="font-size:10px">${escapeHtml(maskSource(c.source))}</span><button class="text-btn remove-camera-btn" data-remove-camera="${i}">Remove</button></div></article>`;
+}
+
+function renderCameras() {
+  const grid = $("#allCamerasGrid");
+  if (!grid) return;
+  $("#cameraEmptyState").classList.toggle("hidden", cameras.length > 0);
+  grid.classList.toggle("hidden", cameras.length === 0);
+  $("#cameraNavCount").textContent = cameras.length;
+  const first = (currentUser.name || "").split(" ")[0];
+  $("#cameraWelcomeTitle").textContent = cameras.length ? `Welcome back, ${first}` : "Welcome to your security workspace";
+  $("#cameraWelcomeText").textContent = cameras.length
+    ? `${cameras.length} camera${cameras.length === 1 ? "" : "s"} across ${sites.length} location${sites.length === 1 ? "" : "s"}.`
+    : "Start by adding a location and connecting your first CCTV. You can manage home, office, shop, and other sites from this page.";
+  renderSites();
+  grid.innerHTML = cameras.map(renderCameraCard).join("");
+  $$(".remove-camera-btn", grid).forEach((b) =>
+    b.addEventListener("click", async () => {
+      const c = cameras[Number(b.dataset.removeCamera)];
+      if (!c || !confirm(`Remove "${c.name}" and its saved events?`)) return;
+      try {
+        await apiRequest(`/cameras/${c.id}`, { method: "DELETE" });
+        await refreshWorkspace();
+        showToast(`${c.name} removed.`);
+      } catch (error) {
+        showToast(`Could not remove camera: ${error.message}`);
+      }
+    }),
+  );
+  $$(".camera-more", grid).forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = cameras[Number(b.dataset.cameraIndex)];
+      if (c)
+        openModal(
+          "Camera details",
+          `<p><strong>${escapeHtml(c.name)}</strong></p><p>Location: ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</p><p>Status: ${escapeHtml(c.status || "unknown")}</p><p>Source: ${escapeHtml(maskSource(c.source))}</p><button class="primary-btn close-modal-action" type="button">Close</button>`,
+        );
+    }),
+  );
+}
+
+function renderSites() {
+  const wrap = $("#cameraSites");
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", !sites.length);
+  wrap.innerHTML = sites
+    .map((site) => {
+      const cams = cameras.filter((c) => c.siteId === site.id);
+      const icon = site.type === "Office" ? "▥" : site.type === "Shop" ? "▣" : site.type === "Warehouse" ? "▤" : "⌂";
+      return `<article class="site-card"><div class="site-card-top"><div class="site-icon">${icon}</div><div class="site-title"><strong>${escapeHtml(site.name)}</strong><span>${escapeHtml(site.type)} · ${cams.length} camera${cams.length === 1 ? "" : "s"}</span></div><button class="site-add-camera text-btn" data-site-id="${site.id}">＋ Add camera</button></div><div class="site-camera-summary">${cams.length ? cams.map((c) => `<span class="site-camera-chip"><i class="${isOnline(c) ? "online-dot" : "offline-dot"}"></i>${escapeHtml(c.name)}</span>`).join("") : '<span class="muted">No cameras added at this location yet.</span>'}</div></article>`;
+    })
+    .join("");
+  $$(".site-add-camera", wrap).forEach((b) =>
+    b.addEventListener("click", () => openAddCameraModal(Number(b.dataset.siteId))),
+  );
+}
+
+function openAddCameraModal(preselectedSiteId = null) {
+  const siteOptions = sites
+    .map((s) => `<option value="${s.id}" ${s.id === preselectedSiteId ? "selected" : ""}>${escapeHtml(s.name)} (${escapeHtml(s.type)})</option>`)
+    .join("");
+  openModal(
+    "Add CCTV",
+    `<form id="connectCameraForm" class="connect-camera-form"><label>Camera name<input id="newCameraName" required maxlength="60" placeholder="e.g. Reception camera"></label><label>Location<select id="newCameraSite" required>${siteOptions || '<option value="">Add a location first</option>'}</select></label><label>Stream source<input id="newCameraSource" placeholder="rtsp://… or path/to/video.mp4"></label><button class="primary-btn full-btn" type="submit">Save camera <span>→</span></button><p id="connectCameraMessage" class="auth-message" role="status"></p></form>`,
+  );
+  $("#connectCameraForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#newCameraName").value.trim(),
+      siteId = Number($("#newCameraSite").value),
+      source = $("#newCameraSource").value.trim();
+    if (!name || !siteId) {
+      $("#connectCameraMessage").textContent = "Add a location first, then enter a camera name.";
+      return;
+    }
+    const btn = $("#connectCameraForm button[type='submit']");
+    btn.disabled = true;
+    try {
+      await apiRequest(`/locations/${siteId}/cameras`, postJson({ name, source: source || null }));
+      $("#modalBackdrop").classList.add("hidden");
+      await refreshWorkspace();
+      showToast(`${name} added.`);
+    } catch (error) {
+      btn.disabled = false;
+      $("#connectCameraMessage").textContent = `Could not save camera: ${error.message}`;
+    }
+  });
+}
+
+function openAddSiteModal() {
+  openModal(
+    "Add a location",
+    `<p>Create a separate space for each property or business site.</p><form id="addSiteForm" class="connect-camera-form"><label>Location name<input id="newSiteName" required maxlength="60" placeholder="e.g. City Office"></label><label>Location type<select id="newSiteType"><option>Home</option><option>Office</option><option>Shop</option><option>Warehouse</option><option>Other</option></select></label><label>Address (optional)<input id="newSiteAddress" maxlength="120"></label><button class="primary-btn full-btn" type="submit">Create location <span>→</span></button><p id="addSiteMessage" class="auth-message" role="status"></p></form>`,
+  );
+  $("#addSiteForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#newSiteName").value.trim(),
+      type = $("#newSiteType").value,
+      address = $("#newSiteAddress").value.trim();
+    if (!name) return;
+    if (sites.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      $("#addSiteMessage").textContent = "A location with this name already exists.";
+      return;
+    }
+    const btn = $("#addSiteForm button[type='submit']");
+    btn.disabled = true;
+    try {
+      await apiRequest("/locations", postJson({ name, address: address || null, type }));
+      $("#modalBackdrop").classList.add("hidden");
+      await refreshWorkspace();
+      showToast(`${name} location added.`);
+    } catch (error) {
+      btn.disabled = false;
+      $("#addSiteMessage").textContent = `Could not create location: ${error.message}`;
+    }
+  });
+}
+
 function init() {
   $$(".auth-tab").forEach((b) => b.addEventListener("click", () => authTab(b.dataset.auth)));
   $$(".show-password").forEach((b) =>
@@ -867,41 +935,48 @@ function init() {
       b.textContent = input.type === "password" ? "Show" : "Hide";
     }),
   );
-  $("#signInBtn").addEventListener("click", () => {
+  $("#signInBtn").addEventListener("click", async () => {
     const email = $("#signInEmail").value.trim(),
-      pass = $("#signInPassword").value;
-    if (!email || !pass) {
+      password = $("#signInPassword").value;
+    if (!email || !password) {
       $("#authMessage").textContent = "Enter your email and password to continue.";
       return;
     }
-    const name = email
-      .split("@")[0]
-      .split(/[._-]/)
-      .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : ""))
-      .join(" ");
-    showApp({ name: name || "User", email });
-    showToast(
-      cameras.length
-        ? "Your saved camera list is ready."
-        : "Welcome! Connect your first CCTV to get started.",
-    );
+    const btn = $("#signInBtn");
+    btn.disabled = true;
+    $("#authMessage").textContent = "";
+    try {
+      await startSession(await apiRequest("/auth/login", postJson({ email, password })));
+    } catch (error) {
+      $("#authMessage").textContent = error.message;
+    } finally {
+      btn.disabled = false;
+    }
   });
-  $("#signUpBtn").addEventListener("click", () => {
+  $("#signUpBtn").addEventListener("click", async () => {
     const name = $("#signUpName").value.trim(),
       email = $("#signUpEmail").value.trim(),
-      pass = $("#signUpPassword").value;
-    if (!name || !email || !pass) {
+      password = $("#signUpPassword").value;
+    if (!name || !email || !password) {
       $("#signUpMessage").textContent = "Please complete all fields.";
       return;
     }
-    if (pass.length < 6) {
-      $("#signUpMessage").textContent = "Use at least 6 characters for this demo.";
+    if (password.length < 8) {
+      $("#signUpMessage").textContent = "Use at least 8 characters.";
       return;
     }
-    cameras = [];
-    sites = [];
-    showApp({ name, email });
-    showToast("Welcome! Add a location, then connect your first CCTV.");
+    const btn = $("#signUpBtn");
+    btn.disabled = true;
+    $("#signUpMessage").textContent = "";
+    try {
+      await apiRequest("/users", postJson({ name, email, password }));
+      await startSession(await apiRequest("/auth/login", postJson({ email, password })));
+      showToast("Welcome! Add a location, then connect your first CCTV.");
+    } catch (error) {
+      $("#signUpMessage").textContent = error.message;
+    } finally {
+      btn.disabled = false;
+    }
   });
   $("#forgotLink").addEventListener("click", (e) => {
     e.preventDefault();
@@ -927,10 +1002,8 @@ function init() {
   });
   $$("[data-page]").forEach((b) => b.addEventListener("click", () => goPage(b.dataset.page)));
   $("#signOutBtn").addEventListener("click", () => {
-    showAuth();
-    authTab("signin");
-    $("#signInPassword").value = "";
-    showToast("Signed out of the demo workspace.");
+    endSession();
+    showToast("Signed out.");
   });
   $("#addCameraBtn").addEventListener("click", () => {
     if (!sites.length) {
@@ -951,7 +1024,7 @@ function init() {
   $("#exportEventsBtn").addEventListener("click", exportCsv);
   $("#archiveCamera").addEventListener("change", () => {
     selectedHour = null;
-    $("#playCamera").textContent = $("#archiveCamera").value;
+    $("#playCamera").textContent = $("#archiveCamera").selectedOptions[0]?.textContent || "—";
     $("#playHour").textContent = "—";
     $("#videoStage").innerHTML =
       '<div class="video-placeholder"><span class="play-large">▶</span><strong>No hour selected</strong><p>Choose an available hour from the archive.</p></div>';
@@ -964,10 +1037,6 @@ function init() {
       '<div class="video-placeholder"><span class="play-large">▶</span><strong>No hour selected</strong><p>Choose an available hour from the archive.</p></div>';
     renderHours();
   });
-  $("#recordingType").addEventListener("change", () =>
-    showToast("Recording type filter is a UI demo; no real archive is connected."),
-  );
-  
   $("#downloadInfoBtn").addEventListener("click", () => {
   const hour = archiveHours[selectedHour];
   const recording = hour?.recordings?.[0];
@@ -997,21 +1066,45 @@ function init() {
   $("#modalBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "modalBackdrop") $("#modalBackdrop").classList.add("hidden");
   });
-  $("#profileForm").addEventListener("submit", (e) => {
+  $("#profileForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    currentUser.name = $("#profileNameInput").value.trim() || "User";
-    currentUser.email = $("#profileEmailInput").value.trim();
-    syncUser();
-    $("#settingsMessage").textContent = "Profile updated in this demo session.";
-    showToast("Profile details updated.");
+    const btn = $("#profileForm button[type='submit']");
+    btn.disabled = true;
+    try {
+      currentUser = await apiRequest(
+        `/users/${currentUser.id}`,
+        { ...postJson({ name: $("#profileNameInput").value.trim(), email: $("#profileEmailInput").value.trim() }), method: "PATCH" },
+      );
+      syncUser();
+      renderOverview();
+      $("#settingsMessage").textContent = "Profile updated.";
+      showToast("Profile details updated.");
+    } catch (error) {
+      $("#settingsMessage").textContent = error.message;
+    } finally {
+      btn.disabled = false;
+    }
   });
   $("#knownPersonForm").addEventListener("submit", enrollKnownPerson);
-  $("#securityTab").addEventListener("click", () =>
+  $("#securityTab").addEventListener("click", () => {
     openModal(
-      "Sign-in & security",
-      "<p>Real password changes, two-factor authentication, and session management will be available after a secure backend is connected.</p>",
-    ),
-  );
+      "Change password",
+      `<form id="passwordForm" class="connect-camera-form"><label>Current password<input id="curPassword" type="password" autocomplete="current-password" required></label><label>New password (min 8 characters)<input id="newPassword" type="password" autocomplete="new-password" minlength="8" required></label><button class="primary-btn full-btn" type="submit">Update password <span>→</span></button><p id="passwordMessage" class="auth-message" role="status"></p></form>`,
+    );
+    $("#passwordForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await apiRequest(
+          `/users/${currentUser.id}/password`,
+          postJson({ current_password: $("#curPassword").value, new_password: $("#newPassword").value }),
+        );
+        $("#modalBackdrop").classList.add("hidden");
+        showToast("Password updated.");
+      } catch (error) {
+        $("#passwordMessage").textContent = error.message;
+      }
+    });
+  });
   $("#preferencesTab").addEventListener("click", () =>
     openModal(
       "Preferences",
@@ -1041,11 +1134,16 @@ function init() {
 
     deleteKnownPerson(profileId);
   });
-  renderRecent();
-  renderCameras();
-  renderHours();
-  loadBackendEvents();
+  const today = dayKey(new Date());
+  $("#archiveDate").value = today;
+  $("#eventDateFilter").value = today;
   startTimelineAutoRefresh();
+  const saved = readJson("sentinel-session", null);
+  if (saved?.token) {
+    authToken = saved.token;
+    apiRequest("/auth/me").then(showApp).catch(() => endSession());
+  }
+
 
 
   $("#playLocalBtn").addEventListener("click", async () => {
@@ -1064,7 +1162,13 @@ function init() {
     </video>`;
 
   const video = stage.querySelector("video");
-  video.src = `${API_BASE}${recording.playback_url}?t=${Date.now()}`;
+  try {
+    const { url } = await apiRequest(`${recording.playback_url}/playback-token`, { method: "POST" });
+    video.src = `${API_BASE}${url}`;
+  } catch (error) {
+    showToast(`Could not start playback: ${error.message}`);
+    return;
+  }
 
   video.addEventListener("error", () => {
     showToast("Playback failed. Check the video format and backend URL.");

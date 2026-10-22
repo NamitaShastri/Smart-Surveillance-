@@ -44,7 +44,7 @@
           <div class="form-row"><label class="check-label"><input type="checkbox" /> Remember me</label><a href="#"
               id="forgotLink">Forgot password?</a></div>
           <button id="signInBtn" class="primary-btn full-btn">Sign in <span>→</span></button>
-          <p class="auth-note">Demo prototype · use any email and password</p>
+          <p class="auth-note">Sign in with the email and password you registered with.</p>
           <p id="authMessage" class="auth-message" role="status"></p>
         </div>
         <div id="signupForm" class="auth-form hidden">
@@ -56,10 +56,10 @@
           <label>Email address<input id="signUpEmail" type="email" placeholder="you@example.com" autocomplete="email"
               required /></label>
           <label>Password<div class="password-wrap"><input id="signUpPassword" type="password"
-                placeholder="Create a password" autocomplete="new-password" required /><button class="show-password"
+                placeholder="At least 8 characters" autocomplete="new-password" required /><button class="show-password"
                 data-target="signUpPassword" type="button">Show</button></div></label>
           <button id="signUpBtn" class="primary-btn full-btn">Create account <span>→</span></button>
-          <p class="auth-note">Demo only: account details stay in this browser session.</p>
+          <p class="auth-note">Your account is created on the backend.</p>
           <p id="signUpMessage" class="auth-message" role="status"></p>
         </div>
       </div>
@@ -82,7 +82,7 @@
             class="nav-count" id="cameraNavCount">0</span></button>
         <button class="nav-item" data-page="knownpeople"><span class="nav-icon">♙</span> Known people</button>
         <button class="nav-item" data-page="events"><span class="nav-icon">◷</span> Events & timeline <span
-            class="nav-count alert-count">3</span></button>
+            class="nav-count alert-count" id="eventNavCount">0</span></button>
         <button class="nav-item" data-page="recordings"><span class="nav-icon">▶</span> Recording archive</button>
       </nav>
       <div class="nav-label">PREFERENCES</div>
@@ -90,10 +90,6 @@
         <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span> Settings</button>
       </nav>
       <div class="sidebar-spacer"></div>
-      <div class="storage-card">
-        <div class="storage-head"><span>Storage used</span><strong>68%</strong></div>
-        <div class="storage-bar"><span></span></div><small>68 GB of 100 GB <span>↗</span></small>
-      </div>
       <div class="sidebar-help">
         <div class="help-icon">?</div>
         <div><strong>Need a hand?</strong><small>Visit help centre</small></div><span>↗</span>
@@ -111,7 +107,7 @@
         <div class="breadcrumb"><span>Workspace</span><span class="crumb-slash">/</span><strong
             id="pageCrumb">Overview</strong></div>
         <div class="top-actions">
-          <div class="system-status"><span class="pulse-dot"></span> All systems normal</div>
+          <div class="system-status"><span class="pulse-dot" id="sysDot"></span> <span id="sysStatusText">Checking…</span></div>
           <button id="themeBtn" class="icon-btn" aria-label="Toggle theme" title="Toggle light/dark mode">☼</button>
           <button class="icon-btn notification-btn" id="notificationBtn" aria-label="Notifications">♧<i></i></button>
           <div class="profile-wrap">
@@ -133,35 +129,31 @@
         <section id="page-overview" class="page active">
           <div class="page-heading">
             <div>
-              <div class="eyebrow">TUESDAY, OCTOBER 13, 2026</div>
-              <h1>Good evening<span class="heading-period">.</span></h1>
+              <div class="eyebrow" id="todayLabel"></div>
+              <h1><span id="greetingText">Welcome</span><span class="heading-period">.</span></h1>
               <p>Here’s what’s happening around your property.</p>
             </div><button class="secondary-btn" data-page="events">View all events <span>→</span></button>
           </div>
           <div class="stat-grid">
             <article class="stat-card">
               <div class="stat-top"><span>Connected cameras</span><span class="stat-icon cyan">▣</span></div>
-              <div class="stat-value">4 <span class="stat-sub">/ 4 online</span></div>
-              <div class="stat-foot"><span class="tiny-green">● All connected</span><span class="muted">Across your
-                  property</span></div>
+              <div class="stat-value"><span id="statCams">0</span> <span class="stat-sub" id="statCamsSub">/ 0 online</span></div>
+              <div class="stat-foot"><span class="tiny-green" id="statCamsFoot">No cameras yet</span><span class="muted" id="statSites">0 locations</span></div>
             </article>
             <article class="stat-card">
               <div class="stat-top"><span>Events today</span><span class="stat-icon purple">◷</span></div>
-              <div class="stat-value">18 <span class="stat-sub positive">+4</span></div>
-              <div class="stat-foot"><span class="muted">Compared to yesterday</span><span class="sparkline">⌁⌁⌁</span>
-              </div>
+              <div class="stat-value"><span id="statEvents">0</span> <span class="stat-sub" id="statEventsDelta"></span></div>
+              <div class="stat-foot"><span class="muted">Compared to yesterday</span></div>
             </article>
             <article class="stat-card">
-              <div class="stat-top"><span>Recording status</span><span class="stat-icon green">●</span></div>
-              <div class="stat-value">Active</div>
-              <div class="stat-foot"><span class="tiny-green">● Continuous recording</span><span class="muted">Demo
-                  status</span></div>
+              <div class="stat-top"><span>Backend status</span><span class="stat-icon green">●</span></div>
+              <div class="stat-value" id="statBackend">Checking…</div>
+              <div class="stat-foot"><span class="muted">Smart Surveillance API</span></div>
             </article>
             <article class="stat-card">
-              <div class="stat-top"><span>Storage usage</span><span class="stat-icon amber">▤</span></div>
-              <div class="stat-value">68 <span class="stat-sub">GB / 100 GB</span></div>
-              <div class="mini-progress"><span></span></div>
-              <div class="stat-foot"><span class="muted">32 GB remaining</span><span class="muted">68%</span></div>
+              <div class="stat-top"><span>Saved recordings</span><span class="stat-icon amber">▤</span></div>
+              <div class="stat-value"><span id="statRecs">0</span> <span class="stat-sub">files</span></div>
+              <div class="stat-foot"><span class="muted">Saved by the detection pipeline</span></div>
             </article>
           </div>
           <div class="section-heading">
@@ -170,38 +162,7 @@
               <p>Quick look at your monitored areas.</p>
             </div><button class="text-btn" data-page="cameras">All cameras <span>→</span></button>
           </div>
-          <div class="camera-grid">
-            <article class="camera-card">
-              <div class="camera-preview preview-drive"><span class="preview-label"><i class="record-dot"></i> DEMO
-                  FEED</span><span class="camera-overlay">CAM 01</span>
-                <div class="scene-road"></div>
-              </div>
-              <div class="camera-info">
-                <div><strong>Driveway</strong><small><span class="online-dot"></span> Online · 1080p</small></div>
-                <button class="dots-btn camera-more" data-camera="Driveway">•••</button>
-              </div>
-            </article>
-            <article class="camera-card">
-              <div class="camera-preview preview-front"><span class="preview-label"><i class="record-dot"></i> DEMO
-                  FEED</span><span class="camera-overlay">CAM 02</span>
-                <div class="scene-door"></div>
-              </div>
-              <div class="camera-info">
-                <div><strong>Front entrance</strong><small><span class="online-dot"></span> Online · 1080p</small></div>
-                <button class="dots-btn camera-more" data-camera="Front entrance">•••</button>
-              </div>
-            </article>
-            <article class="camera-card">
-              <div class="camera-preview preview-back"><span class="preview-label"><i class="record-dot"></i> DEMO
-                  FEED</span><span class="camera-overlay">CAM 03</span>
-                <div class="scene-garden"></div>
-              </div>
-              <div class="camera-info">
-                <div><strong>Back garden</strong><small><span class="online-dot"></span> Online · 720p</small></div>
-                <button class="dots-btn camera-more" data-camera="Back garden">•••</button>
-              </div>
-            </article>
-          </div>
+          <div id="overviewCameras" class="camera-grid"></div>
           <div class="bottom-grid">
             <section class="panel recent-panel">
               <div class="panel-heading">
@@ -263,10 +224,8 @@
           </div>
           <div id="allCamerasGrid" class="camera-grid large-camera-grid"></div>
           <div class="notice-strip"><span class="notice-icon">ⓘ</span>
-            <div><strong>Connection status is a prototype</strong>
-              <p>This page stores camera labels and site organization in this browser only. Live RTSP connection,
-                credential validation, and camera discovery require the backend. Never enter camera passwords into this
-                demo.</p>
+            <div><strong>Cameras are saved to your backend</strong>
+              <p>Locations and cameras are stored by the API. Enter the stream source (RTSP URL or video file path) when adding a camera. Source credentials are sent to your backend, so use a trusted network. Removing a camera also deletes its saved events.
             </div>
           </div>
         </section>
@@ -280,10 +239,8 @@
             </div>
           </div>
           <div class="notice-strip face-notice"><span class="notice-icon">ⓘ</span>
-            <div><strong>Prototype only — face recognition is not running yet</strong>
-              <p>This page previews enrollment only. Photos remain in this browser session and are not uploaded. Enroll
-                people only with informed permission. Real matching, secure storage, and deletion controls must be
-                implemented in the backend.</p>
+            <div><strong>Face enrollment</strong>
+              <p>Photos are turned into face embeddings by the backend and the original images are not saved. Enroll people only with informed permission, and use × to delete a profile and its samples.
             </div>
           </div>
           <div class="known-people-layout">
@@ -355,16 +312,15 @@
               <div class="panel-heading">
                 <div>
                   <h2>Enrolled people</h2>
-                  <p id="knownPeopleCount">0 people enrolled in this session.</p>
-                </div><span class="archive-badge">LOCAL DEMO</span>
+                  <p id="knownPeopleCount">Loading…</p>
+                </div><span class="archive-badge">SAVED ON SERVER</span>
               </div>
               <div id="knownPeopleList" class="known-people-list">
                 <div class="empty-state"><span>♙</span><strong>No people enrolled yet</strong>
                   <p>Add a person using the form. The prototype will show their profile here.</p>
                 </div>
               </div>
-              <p class="small-note">This frontend does not create face embeddings, train a CNN, or identify people in
-                camera footage.</p>
+              
             </section>
           </div>
         </section>
@@ -374,7 +330,8 @@
             <div>
               <div class="eyebrow">VIDEO LIBRARY</div>
               <h1>Recording archive<span class="heading-period">.</span></h1>
-              <p>Browse saved footage by camera, date, and hour.</p></div>
+              <p>Browse saved footage by date and hour.</p></div>
+          </div>
           <div class="archive-layout">
             <section class="panel archive-browser">
               <div class="archive-controls"><label>Camera<select id="archiveCamera">
@@ -383,15 +340,11 @@
                     <option>Back garden</option>
                     <option>Living room</option>
                   </select></label><label>Date<input id="archiveDate" type="date"
-                    value="2026-10-13" /></label><label>Recording type<select id="recordingType">
-                    <option>All recordings</option>
-                    <option>Continuous</option>
-                    <option>Event clips</option>
-                  </select></label></div>
+                    /></label></div>
               <div class="archive-summary">
                 <div><strong id="archiveDateTitle">Tuesday, October 13</strong><span id="archiveSummaryText">8 sample
                     hourly segments · demo archive</span></div><span class="archive-badge"><i class="record-dot"></i>
-                  SAMPLE DATA</span>
+                  SAVED FILES</span>
               </div>
               <div class="hourly-heading"><span>HOUR</span><span>FOOTAGE AVAILABILITY</span><span>CLIPS</span></div>
               <div id="hourlyList" class="hourly-list"></div>
@@ -416,8 +369,7 @@
               </div>
               <div class="playback-actions"><button id="playLocalBtn" class="primary-btn" disabled>▶ Play
                   preview</button><button id="downloadInfoBtn" class="secondary-btn">Recording details</button></div>
-              <p class="small-note">A selected hour represents an archive slot. Real saved video requires backend
-                recording and storage integration.</p>
+              <p class="small-note">Each row is an hour that has saved recordings. Press Play preview to stream the first file from the backend.
             </section>
           </div>
         </section>
@@ -431,29 +383,20 @@
             </div><button class="secondary-btn" id="exportEventsBtn">↓ Export CSV</button>
           </div>
           <div class="event-stats">
-            <div class="event-stat"><span class="event-stat-icon purple">◉</span>
-              <div><strong>18</strong><small>Events today</small></div>
-            </div>
-            <div class="event-stat"><span class="event-stat-icon cyan">♙</span>
-              <div><strong>12</strong><small>People detected</small></div>
-            </div>
-            <div class="event-stat"><span class="event-stat-icon amber">▣</span>
-              <div><strong>3</strong><small>Deliveries</small></div>
-            </div>
-            <div class="event-stat"><span class="event-stat-icon green">↗</span>
-              <div><strong>3</strong><small>Arrivals / departures</small></div>
-            </div>
+            <div class="event-stat"><span class="event-stat-icon purple">◉</span><div><strong id="evStatTotal">0</strong><small>Events on this day</small></div></div>
+            <div class="event-stat"><span class="event-stat-icon green">♙</span><div><strong id="evStatKnown">0</strong><small>Known people</small></div></div>
+            <div class="event-stat"><span class="event-stat-icon cyan">♙</span><div><strong id="evStatUnknown">0</strong><small>Unknown people</small></div></div>
+            <div class="event-stat"><span class="event-stat-icon amber">▣</span><div><strong id="evStatOther">0</strong><small>Other events</small></div></div>
           </div>
           <div class="panel events-panel">
             <div class="events-toolbar">
               <div class="search-wrap"><span>⌕</span><input id="eventSearch"
                   placeholder="Search events, cameras, people..." /></div><select id="eventTypeFilter">
                 <option value="all">All event types</option>
-                <option value="person">Person detected</option>
-                <option value="delivery">Delivery</option>
-                <option value="arrival">Arrival / departure</option>
-                <option value="motion">Motion detected</option>
-              </select><input id="eventDateFilter" type="date" value="2026-10-13" />
+                <option value="known">Known person</option>
+                <option value="unknown">Unknown person</option>
+                <option value="other">Other events</option>
+              </select><input id="eventDateFilter" type="date" />
             </div>
             <div class="timeline-date"><span class="date-marker">13</span>
               <div><strong id="timelineDateTitle">Tuesday, October 13</strong><small>Today · Local time</small></div>

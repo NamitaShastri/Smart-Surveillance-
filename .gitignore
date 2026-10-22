@@ -123,3 +123,5 @@ namita_test.mp4
 .env.development.local
 .env.test.local
 .env.production.local
+run_backend.ps1
+run_pipeline.ps1
