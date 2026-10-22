@@ -2895,3 +2895,158 @@
      font-size: 20px
    }
  }
+/* ---- Known people: live webcam / upload enrollment ---- */
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px
+}
+
+.mode-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer
+}
+
+.mode-btn.active {
+  background: var(--accent);
+  color: var(--accent-ink)
+}
+
+.enroll-pane {
+  display: grid;
+  gap: 15px
+}
+
+.enroll-pane.hidden {
+  display: none
+}
+
+.enroll-pane>label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted2);
+  font-size: 11px;
+  font-weight: 600
+}
+
+.enroll-pane select,
+.enroll-pane input[type=file] {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px
+}
+
+.live-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px
+}
+
+.live-step {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  padding: 9px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer
+}
+
+.live-step strong {
+  color: var(--text);
+  font-size: 11px
+}
+
+.live-step.active {
+  border-color: var(--cyan)
+}
+
+.live-step.done {
+  border-color: var(--green)
+}
+
+.live-thumb {
+  width: 100%;
+  aspect-ratio: 4/3;
+  border-radius: 6px;
+  background: var(--surface3);
+  overflow: hidden
+}
+
+.live-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block
+}
+
+.live-frame {
+  position: relative;
+  aspect-ratio: 4/3;
+  background: #0e1219;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden
+}
+
+.live-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block
+}
+
+.live-off {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  color: #8f98aa;
+  font-size: 11px;
+  padding: 12px
+}
+
+.live-off.hidden {
+  display: none
+}
+
+.live-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px
+}
+
+.live-buttons>button {
+  flex: 1;
+  min-width: 110px
+}
+
+@media (max-width: 560px) {
+  .live-steps {
+    grid-template-columns: 1fr
+  }
+}

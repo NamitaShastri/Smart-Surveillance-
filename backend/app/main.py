@@ -552,10 +552,10 @@ async def enroll_face_profile_multi(
             detail="Explicit consent is required before enrollment.",
         )
 
-    if source != "live_capture":
+    if source not in {"live_capture", "upload"}:
         raise HTTPException(
             status_code=400,
-            detail="Multi-pose enrollment requires live_capture source.",
+            detail="Source must be 'live_capture' or 'upload'.",
         )
 
     # 2. Confirm the user exists.
@@ -643,7 +643,7 @@ async def enroll_face_profile_multi(
             sample = models.FaceSample(
                 profile_id=profile.id,
                 embedding=stored_embeddings[pose],
-                source="live_capture",
+                source=source,
             )
             db.add(sample)
 

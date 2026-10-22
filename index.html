@@ -248,11 +248,16 @@
               <div class="panel-heading">
                 <div>
                   <h2>Enroll a person</h2>
-                  <p>Add a clear, front-facing image and a label.</p>
+                  <p>Capture three angles with your webcam, or upload three photos.</p>
                 </div><span class="panel-icon">＋</span>
               </div>
 
               <form id="knownPersonForm" class="known-person-form">
+                <div class="mode-toggle" role="tablist" aria-label="Enrollment method">
+                  <button type="button" class="mode-btn active" data-enroll-mode="live" role="tab" aria-selected="true">◉ Live webcam</button>
+                  <button type="button" class="mode-btn" data-enroll-mode="upload" role="tab" aria-selected="false">↑ Upload photos</button>
+                </div>
+
                 <label>
                   Full name
                   <input id="knownPersonName" type="text" placeholder="e.g. Alex Sharma" required maxlength="80">
@@ -268,20 +273,44 @@
                   </select>
                 </label>
 
-                <label>
-                  Front-facing photo
-                  <input id="faceStraight" type="file" accept="image/jpeg,image/png,image/webp" required>
-                </label>
+                <div id="enrollLive" class="enroll-pane">
+                  <label>
+                    Camera
+                    <select id="liveCameraSelect"><option value="">Default camera</option></select>
+                  </label>
+                  <div class="live-steps">
+                    <button type="button" class="live-step active" data-pose="straight"><span class="live-thumb"></span><strong>1 · Straight</strong>Look at the camera</button>
+                    <button type="button" class="live-step" data-pose="left"><span class="live-thumb"></span><strong>2 · Left</strong>Turn slightly left</button>
+                    <button type="button" class="live-step" data-pose="right"><span class="live-thumb"></span><strong>3 · Right</strong>Turn slightly right</button>
+                  </div>
+                  <div class="live-frame">
+                    <video id="liveVideo" autoplay playsinline muted></video>
+                    <div id="liveOff" class="live-off"><strong>Webcam is off</strong><span>Press “Start webcam” to begin.</span></div>
+                  </div>
+                  <p class="small-note" id="livePoseHint">Look straight at the camera and keep your face centred.</p>
+                  <div class="live-buttons">
+                    <button type="button" class="secondary-btn" id="liveStartBtn">Start webcam</button>
+                    <button type="button" class="primary-btn" id="liveCaptureBtn" disabled>Capture straight</button>
+                    <button type="button" class="secondary-btn" id="liveStopBtn" disabled>Stop</button>
+                  </div>
+                  <p class="small-note" id="liveCount">Captured 0 of 3</p>
+                  <p class="small-note">Good lighting, one person in view. A head turn does not prove a person is live; there is no anti-spoofing yet.</p>
+                </div>
 
-                <label>
-                  Left-facing photo
-                  <input id="faceLeft" type="file" accept="image/jpeg,image/png,image/webp" required>
-                </label>
-
-                <label>
-                  Right-facing photo
-                  <input id="faceRight" type="file" accept="image/jpeg,image/png,image/webp" required>
-                </label>
+                <div id="enrollUpload" class="enroll-pane hidden">
+                  <label>
+                    Front-facing photo
+                    <input id="faceStraight" type="file" accept="image/jpeg,image/png,image/webp">
+                  </label>
+                  <label>
+                    Left-facing photo
+                    <input id="faceLeft" type="file" accept="image/jpeg,image/png,image/webp">
+                  </label>
+                  <label>
+                    Right-facing photo
+                    <input id="faceRight" type="file" accept="image/jpeg,image/png,image/webp">
+                  </label>
+                </div>
 
                 <div class="notice-strip">
                   <span class="notice-icon">ⓘ</span>

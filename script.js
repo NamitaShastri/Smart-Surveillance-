@@ -143,6 +143,7 @@ function goPage(page) {
   $("#profileMenu").classList.add("hidden");
   $("#sidebar").classList.remove("mobile-open");
   if (page === "cameras") renderCameras();
+  if (page !== "knownpeople") stopLiveCamera();
   if (page === "knownpeople") loadKnownPeople();
   if (page === "events") loadBackendEvents();
   if (page === "recordings") renderHours();
@@ -455,6 +456,134 @@ async function loadKnownPeople() {
   }
 }
 
+/* ---------- face enrollment: live webcam or photo upload ---------- */
+const POSES = [
+  { key: "straight", label: "Straight", hint: "Look straight at the camera and keep your face centred." },
+  { key: "left", label: "Left", hint: "Turn your head slightly to your left, keeping your face visible." },
+  { key: "right", label: "Right", hint: "Turn your head slightly to your right, keeping your face visible." },
+];
+let enrollMode = "live";
+let liveStream = null;
+let livePose = 0;
+const liveShots = { straight: null, left: null, right: null }; // { file, url }
+
+function setEnrollMode(mode) {
+  enrollMode = mode;
+  $$("[data-enroll-mode]").forEach((b) => {
+    const on = b.dataset.enrollMode === mode;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  $("#enrollLive").classList.toggle("hidden", mode !== "live");
+  $("#enrollUpload").classList.toggle("hidden", mode !== "upload");
+  if (mode !== "live") stopLiveCamera();
+  $("#knownPersonMessage").textContent = "";
+}
+
+function renderLive() {
+  POSES.forEach((p, i) => {
+    const el = $(`.live-step[data-pose="${p.key}"]`);
+    el.classList.toggle("active", i === livePose);
+    el.classList.toggle("done", Boolean(liveShots[p.key]));
+    $(".live-thumb", el).innerHTML = liveShots[p.key] ? `<img src="${liveShots[p.key].url}" alt="${p.label} capture">` : "";
+  });
+  const pose = POSES[livePose];
+  $("#livePoseHint").textContent = pose.hint;
+  $("#liveCaptureBtn").textContent = `${liveShots[pose.key] ? "Retake" : "Capture"} ${pose.label.toLowerCase()}`;
+  $("#liveCaptureBtn").disabled = !liveStream;
+  $("#liveStopBtn").disabled = !liveStream;
+  $("#liveCount").textContent = `Captured ${POSES.filter((p) => liveShots[p.key]).length} of 3`;
+}
+
+function resetLiveShots() {
+  POSES.forEach((p) => {
+    if (liveShots[p.key]) URL.revokeObjectURL(liveShots[p.key].url);
+    liveShots[p.key] = null;
+  });
+  livePose = 0;
+  renderLive();
+}
+
+function stopLiveCamera() {
+  liveStream?.getTracks().forEach((t) => t.stop());
+  liveStream = null;
+  const video = $("#liveVideo");
+  if (video) video.srcObject = null;
+  $("#liveOff")?.classList.remove("hidden");
+  renderLive();
+}
+
+async function startLiveCamera() {
+  const message = $("#knownPersonMessage");
+  if (!navigator.mediaDevices?.getUserMedia) {
+    message.textContent = "This browser can't access a webcam here. Open the dashboard from localhost or HTTPS, or use Upload photos.";
+    return;
+  }
+  try {
+    stopLiveCamera();
+    const id = $("#liveCameraSelect").value;
+    const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    liveStream = await navigator.mediaDevices.getUserMedia({
+      video: id ? { deviceId: { exact: id }, ...size } : { facingMode: "user", ...size },
+      audio: false,
+    });
+    const video = $("#liveVideo");
+    video.srcObject = liveStream;
+    await video.play();
+    $("#liveOff").classList.add("hidden");
+    message.textContent = "";
+    // Device names are only available once permission has been granted.
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const select = $("#liveCameraSelect");
+    const chosen = select.value;
+    select.innerHTML =
+      '<option value="">Default camera</option>' +
+      devices.map((d, i) => `<option value="${escapeHtml(d.deviceId)}">${escapeHtml(d.label || `Camera ${i + 1}`)}</option>`).join("");
+    select.value = [...select.options].some((o) => o.value === chosen) ? chosen : "";
+    renderLive();
+  } catch (error) {
+    liveStream = null;
+    renderLive();
+    message.textContent = `Could not start the webcam: ${error.message}. Allow camera permission, or use Upload photos.`;
+  }
+}
+
+async function captureLive() {
+  const video = $("#liveVideo");
+  if (!liveStream || !video.videoWidth) {
+    $("#knownPersonMessage").textContent = "Wait for the webcam image to appear, then capture.";
+    return;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+  if (!blob) {
+    $("#knownPersonMessage").textContent = "Could not capture the image. Please try again.";
+    return;
+  }
+  const key = POSES[livePose].key;
+  if (liveShots[key]) URL.revokeObjectURL(liveShots[key].url);
+  liveShots[key] = { file: new File([blob], `webcam_${key}.jpg`, { type: "image/jpeg" }), url: URL.createObjectURL(blob) };
+  const next = POSES.findIndex((p) => !liveShots[p.key]);
+  if (next >= 0) livePose = next; // jump to the next pose that still needs a capture
+  $("#knownPersonMessage").textContent = next >= 0 ? `Saved. Next: ${POSES[next].label.toLowerCase()}.` : "All three captured. Check the previews, then enroll.";
+  renderLive();
+}
+
+function getEnrollFiles() {
+  if (enrollMode === "live") {
+    return { straight: liveShots.straight?.file, left: liveShots.left?.file, right: liveShots.right?.file, source: "live_capture" };
+  }
+  return {
+    straight: $("#faceStraight").files[0],
+    left: $("#faceLeft").files[0],
+    right: $("#faceRight").files[0],
+    source: "upload",
+  };
+}
+
 async function enrollKnownPerson(event) {
   event.preventDefault();
 
@@ -463,13 +592,13 @@ async function enrollKnownPerson(event) {
 
   const name = $("#knownPersonName").value.trim();
   const relation = $("#knownPersonRelation").value;
-  const straight = $("#faceStraight").files[0];
-  const left = $("#faceLeft").files[0];
-  const right = $("#faceRight").files[0];
+  const { straight, left, right, source } = getEnrollFiles();
   const consent = $("#faceConsent").checked;
 
   if (!name || !straight || !left || !right || !consent) {
-    message.textContent = "Enter a name, select all three images, and confirm consent.";
+    message.textContent = enrollMode === "live"
+      ? "Enter a name, capture all three poses, and confirm consent."
+      : "Enter a name, choose all three photos, and confirm consent.";
     return;
   }
 
@@ -492,7 +621,7 @@ async function enrollKnownPerson(event) {
   formData.append("display_name", name);
   formData.append("relationship_label", relation);
   formData.append("consent_given", "true");
-  formData.append("source", "live_capture");
+  formData.append("source", source);
   formData.append("straight_image", straight);
   formData.append("left_image", left);
   formData.append("right_image", right);
@@ -509,6 +638,8 @@ async function enrollKnownPerson(event) {
     message.textContent = result.message || "Face profile enrolled successfully.";
 
     $("#knownPersonForm").reset();
+    stopLiveCamera();
+    resetLiveShots();
 
     showToast(`${name} enrolled successfully.`);
     await loadKnownPeople();
@@ -794,6 +925,8 @@ async function startSession({ access_token, user }) {
 }
 
 function endSession() {
+  stopLiveCamera();
+  resetLiveShots();
   authToken = null;
   localStorage.removeItem("sentinel-session");
   currentUser = { id: null, name: "", email: "" };
@@ -1086,6 +1219,20 @@ function init() {
     }
   });
   $("#knownPersonForm").addEventListener("submit", enrollKnownPerson);
+  $$("[data-enroll-mode]").forEach((b) => b.addEventListener("click", () => setEnrollMode(b.dataset.enrollMode)));
+  $("#liveStartBtn").addEventListener("click", startLiveCamera);
+  $("#liveStopBtn").addEventListener("click", stopLiveCamera);
+  $("#liveCaptureBtn").addEventListener("click", captureLive);
+  $("#liveCameraSelect").addEventListener("change", () => {
+    if (liveStream) startLiveCamera();
+  });
+  $$(".live-step").forEach((b) =>
+    b.addEventListener("click", () => {
+      livePose = POSES.findIndex((p) => p.key === b.dataset.pose);
+      renderLive();
+    }),
+  );
+  renderLive();
   $("#securityTab").addEventListener("click", () => {
     openModal(
       "Change password",
