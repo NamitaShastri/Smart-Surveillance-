@@ -114,6 +114,7 @@ node_modules/
 dist/
 build/
 .npm/
+namita_test.mp4
 
 # ==============================
 # Frontend Local Configuration

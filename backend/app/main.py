@@ -20,8 +20,10 @@ from .face_service import (
     compare_vectors,
 )
 
-
-
+from fastapi.middleware.cors import CORSMiddleware
+import mimetypes
+from pathlib import Path
+from fastapi.responses import FileResponse
 
 Base.metadata.create_all(bind=engine)
 
@@ -31,6 +33,28 @@ app = FastAPI(
     version="0.3.0",
 )
 
+# Real YOLO tracking recordings
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RECORDINGS_DIR = PROJECT_ROOT / "runs" / "detect" / "track"
+
+ALLOWED_VIDEO_EXTENSIONS = {
+    ".avi",
+    ".mp4",
+    ".mkv",
+    ".mov",
+}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+        "http://127.0.0.1:5501",
+        "http://localhost:5501",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 def get_db():
     db = SessionLocal()
@@ -51,6 +75,152 @@ def home():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+
+
+
+@app.get("/recordings")
+def list_recordings():
+    """List actual video files saved by the YOLO pipeline."""
+    if not RECORDINGS_DIR.is_dir():
+        return []
+
+    recordings = []
+
+    for file_path in RECORDINGS_DIR.iterdir():
+        if (
+            not file_path.is_file()
+            or file_path.suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS
+        ):
+            continue
+
+        stat = file_path.stat()
+
+        recordings.append({
+            "filename": file_path.name,
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(
+                stat.st_mtime
+            ).astimezone().isoformat(),
+            "playback_url": f"/recordings/{file_path.name}",
+            "format": file_path.suffix.lower().lstrip("."),
+        })
+
+    recordings.sort(
+        key=lambda item: item["modified_at"],
+        reverse=True,
+    )
+
+    return recordings
+
+
+@app.get("/recordings/{filename}")
+def play_recording(filename: str):
+    """Stream a saved video from the approved recordings folder."""
+
+    if (
+        not filename
+        or filename != Path(filename).name
+        or Path(filename).suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid recording filename",
+        )
+
+    file_path = RECORDINGS_DIR / filename
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Recording not found",
+        )
+
+    media_type = mimetypes.guess_type(file_path.name)[0]
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type or "application/octet-stream",
+        content_disposition_type="inline",
+    )
+
+    """List actual video files saved by the YOLO pipeline."""
+    if not RECORDINGS_DIR.is_dir():
+        return []
+
+    recordings = []
+
+    for file_path in RECORDINGS_DIR.iterdir():
+        if (
+            not file_path.is_file()
+            or file_path.suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS
+        ):
+            continue
+
+        stat = file_path.stat()
+
+        recordings.append({
+            "filename": file_path.name,
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(
+                stat.st_mtime
+            ).astimezone().isoformat(),
+            "playback_url": f"/recordings/{file_path.name}",
+            "format": file_path.suffix.lower().lstrip("."),
+        })
+
+    recordings.sort(
+        key=lambda item: item["modified_at"],
+        reverse=True,
+    )
+
+    return recordings
+
+
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+
+@app.get("/recordings/{filename}")
+def get_recording(filename: str):
+    if (
+        not filename
+        or filename != Path(filename).name
+        or Path(filename).suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS
+    ):
+        raise HTTPException(status_code=400, detail="Invalid recording filename")
+
+    file_path = RECORDINGS_DIR / filename
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    return FileResponse(file_path)
+
+
+    """Stream a video from the approved recordings folder."""
+    if Path(filename).name != filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid recording filename",
+        )
+
+    file_path = RECORDINGS_DIR / filename
+
+    if (
+        not file_path.is_file()
+        or file_path.suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Recording not found",
+        )
+
+    return FileResponse(
+    path=file_path,
+    media_type="video/mp4" if file_path.suffix.lower() == ".mp4" else "video/x-msvideo",
+    content_disposition_type="inline"
+)
 
 
 
@@ -106,6 +276,35 @@ def create_location(
     db.refresh(new_location)
 
     return new_location
+
+
+
+@app.get(
+    "/users/{user_id}/locations",
+    response_model=list[schemas.LocationResponse],
+)
+def get_user_locations(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    """List locations belonging to a user."""
+
+    user = db.query(models.User).filter(
+        models.User.id == user_id
+    ).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    return (
+        db.query(models.Location)
+        .filter(models.Location.user_id == user_id)
+        .order_by(models.Location.id.asc())
+        .all()
+    )
 
 
 
@@ -289,67 +488,119 @@ def get_location_events(
 MAX_FACE_UPLOAD_BYTES = 8 * 1024 * 1024
 MAX_FACE_UPLOADS = 4
 
+# Prototype verification settings.
+# Calibrate these values using genuine and different-person test images
+# before relying on identity decisions.
+FACE_VERIFICATION_THRESHOLD = 0.60
+FACE_MINIMUM_SCORE_GAP = 0.05
 
 
-@app.post("/face-profiles/{user_id}/enroll", status_code=201)
-async def enroll_face_profile(
+
+
+@app.post("/face-profiles/{user_id}/enroll-multi", status_code=201)
+async def enroll_face_profile_multi(
     user_id: int,
     display_name: str = Form(..., min_length=1, max_length=100),
     consent_given: bool = Form(...),
-    image: UploadFile = File(...),
+    straight_image: UploadFile = File(...),
+    left_image: UploadFile = File(...),
+    right_image: UploadFile = File(...),
     relationship_label: str | None = Form(default=None, max_length=100),
-    source: str = Form(default="upload"),
+    source: str = Form(default="live_capture"),
     db: Session = Depends(get_db),
 ):
-    """Enroll one person using one uploaded or browser-captured image."""
+    """
+    Enroll one person using three webcam captures:
+    straight, left, and right.
 
+    Extracts and stores face embeddings only; original photos are not saved.
+    """
+
+    # 1. Require explicit consent and webcam enrollment.
     if not consent_given:
         raise HTTPException(
             status_code=400,
             detail="Explicit consent is required before enrollment.",
         )
 
-    if source not in {"upload", "live_capture"}:
+    if source != "live_capture":
         raise HTTPException(
             status_code=400,
-            detail="source must be 'upload' or 'live_capture'.",
+            detail="Multi-pose enrollment requires live_capture source.",
         )
 
-    allowed_types = {"image/jpeg", "image/png", "image/webp"}
-
-    if image.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=415,
-            detail="Use a JPEG, PNG, or WebP image.",
-        )
-
-    user = db.query(models.User).filter(
-        models.User.id == user_id
-    ).first()
+    # 2. Confirm the user exists.
+    user = db.query(models.User).filter(models.User.id == user_id).first()
 
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found.")
-
-    image_bytes = await image.read(MAX_FACE_UPLOAD_BYTES + 1)
-    await image.close()
-
-    if len(image_bytes) > MAX_FACE_UPLOAD_BYTES:
         raise HTTPException(
-            status_code=413,
-            detail="Image must be no larger than 8 MB.",
+            status_code=404,
+            detail="User not found.",
         )
 
-    try:
-        vector = embedding_from_bytes(image_bytes)
-        stored_vector = embedding_to_bytes(vector)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    captures = [
+        ("straight", straight_image),
+        ("left", left_image),
+        ("right", right_image),
+    ]
 
+    allowed_types = {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }
+
+    stored_embeddings = {}
+
+    # 3. Extract all three embeddings before saving anything.
+    try:
+        for pose, upload in captures:
+            if upload.content_type not in allowed_types:
+                raise HTTPException(
+                    status_code=415,
+                    detail=(
+                        f"The {pose} capture must be a JPEG, PNG, "
+                        "or WebP image."
+                    ),
+                )
+
+            image_bytes = await upload.read(MAX_FACE_UPLOAD_BYTES + 1)
+
+            if len(image_bytes) > MAX_FACE_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"The {pose} image must be no larger than 8 MB.",
+                )
+
+            if not image_bytes:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"The {pose} image is empty.",
+                )
+
+            try:
+                vector = embedding_from_bytes(image_bytes)
+                stored_embeddings[pose] = embedding_to_bytes(vector)
+
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{pose.capitalize()} capture: {exc}",
+                ) from exc
+
+    finally:
+        # Close uploaded files, whether processing succeeds or fails.
+        for _, upload in captures:
+            await upload.close()
+
+    # 4. Save one profile with three embedding samples.
     profile = models.FaceProfile(
         user_id=user_id,
         display_name=display_name.strip(),
         relationship_label=(
-            relationship_label.strip() if relationship_label else None
+            relationship_label.strip()
+            if relationship_label and relationship_label.strip()
+            else None
         ),
         consent_given=True,
         is_active=True,
@@ -359,13 +610,14 @@ async def enroll_face_profile(
         db.add(profile)
         db.flush()
 
-        sample = models.FaceSample(
-            profile_id=profile.id,
-            embedding=stored_vector,
-            source=source,
-        )
+        for pose in ("straight", "left", "right"):
+            sample = models.FaceSample(
+                profile_id=profile.id,
+                embedding=stored_embeddings[pose],
+                source="live_capture",
+            )
+            db.add(sample)
 
-        db.add(sample)
         db.commit()
         db.refresh(profile)
 
@@ -373,18 +625,21 @@ async def enroll_face_profile(
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail="Could not save the enrollment. No success was recorded.",
+            detail="Could not save enrollment. No success was recorded.",
         ) from exc
 
+    # 5. Return confirmation without returning any biometric embeddings.
     return {
-        "message": "Face sample enrolled.",
+        "message": "Three-pose face enrollment completed.",
         "profile_id": profile.id,
         "user_id": profile.user_id,
         "display_name": profile.display_name,
-        "source": source,
-        "samples_saved": 1,
+        "samples_saved": 3,
+        "poses_processed": ["straight", "left", "right"],
+        "original_photos_saved": False,
         "identity_verified": False,
     }
+
 
 
 @app.get("/face-profiles/{user_id}")
@@ -422,19 +677,17 @@ def list_face_profiles(
     ]
 
 
+
 @app.post("/face-profiles/{user_id}/verify")
 async def compare_face_candidate(
     user_id: int,
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Compare one face against enrolled samples for evaluation only.
-
-    This returns a ranked similarity candidate, NOT a verified identity.
-    It does not create CCTV events or authorize access.
-    """
+    """Compare a face with enrolled profiles using prototype rules."""
 
     allowed_types = {"image/jpeg", "image/png", "image/webp"}
+
     if image.content_type not in allowed_types:
         raise HTTPException(
             status_code=415,
@@ -446,10 +699,19 @@ async def compare_face_candidate(
     ).first()
 
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="User not found.",
+        )
 
     image_bytes = await image.read(MAX_FACE_UPLOAD_BYTES + 1)
     await image.close()
+
+    if not image_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded image is empty.",
+        )
 
     if len(image_bytes) > MAX_FACE_UPLOAD_BYTES:
         raise HTTPException(
@@ -460,7 +722,10 @@ async def compare_face_candidate(
     try:
         query_vector = embedding_from_bytes(image_bytes)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
 
     profiles = (
         db.query(models.FaceProfile)
@@ -480,12 +745,18 @@ async def compare_face_candidate(
 
         for sample in profile.samples:
             try:
-                reference_vector = embedding_from_storage(sample.embedding)
-                score = compare_vectors(query_vector, reference_vector)
+                reference_vector = embedding_from_storage(
+                    sample.embedding
+                )
+                score = compare_vectors(
+                    query_vector,
+                    reference_vector,
+                )
             except (ValueError, TypeError):
                 continue
 
             usable_samples += 1
+
             if best_score is None or score > best_score:
                 best_score = score
 
@@ -502,15 +773,53 @@ async def compare_face_candidate(
         reverse=True,
     )
 
+    verified = False
+    matched_profile = None
+    best_similarity = None
+    reason = "no_eligible_candidate"
+
+    if candidates:
+        best = candidates[0]
+        best_similarity = best["similarity"]
+
+        if best_similarity < FACE_VERIFICATION_THRESHOLD:
+            reason = "similarity_below_threshold"
+
+        elif (
+            len(candidates) > 1
+            and (
+                best_similarity - candidates[1]["similarity"]
+                < FACE_MINIMUM_SCORE_GAP
+            )
+        ):
+            reason = "ambiguous_candidates"
+
+        else:
+            # Prototype similarity rule passed.
+            # This is not a guarantee of real-world identity.
+            verified = True
+            matched_profile = {
+                "profile_id": best["profile_id"],
+                "display_name": best["display_name"],
+            }
+            reason = "prototype_similarity_rule_passed"
+
     return {
         "message": (
-            "Similarity comparison complete. "
-            "Results are candidates, not identity verification."
+            "Prototype face comparison completed. "
+            "A positive result means the configured similarity "
+            "rules passed; it does not guarantee identity."
         ),
         "user_id": user_id,
-        "identity_verified": False,
+        "identity_verified": verified,
+        "verification_reason": reason,
+        "matched_profile": matched_profile,
+        "best_similarity": best_similarity,
         "candidates": candidates,
+        "threshold": FACE_VERIFICATION_THRESHOLD,
+        "minimum_score_gap": FACE_MINIMUM_SCORE_GAP,
     }
+
 
 
 @app.delete("/face-profiles/{user_id}/{profile_id}")

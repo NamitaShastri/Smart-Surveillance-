@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel | Face Enrollment</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; font-family: Arial, sans-serif;
+      background: #0b1120; color: #e5e7eb; display: flex;
+      justify-content: center; align-items: center; padding: 24px;
+    }
+    .panel {
+      width: 100%; max-width: 760px; background: #111827;
+      border: 1px solid #293449; border-radius: 18px; padding: 28px;
+    }
+    h1 { margin: 0 0 8px; color: #fff; }
+    .subtitle { color: #9ca3af; line-height: 1.6; }
+    label { display: block; margin: 18px 0 8px; font-size: 14px; color: #d1d5db; }
+    input, select {
+      width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #374151;
+      background: #0b1120; color: #fff; font-size: 15px;
+    }
+    .camera-frame {
+      margin-top: 20px; background: #030712; border: 1px solid #374151;
+      border-radius: 12px; overflow: hidden; aspect-ratio: 4 / 3;
+      display: flex; justify-content: center; align-items: center;
+    }
+    video, canvas, #photoPreview { width: 100%; height: 100%; object-fit: contain; }
+    canvas, #photoPreview { display: none; }
+    .step-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .step {
+      padding: 12px; border: 1px solid #374151; border-radius: 10px;
+      background: #0b1120; color: #9ca3af; font-size: 13px;
+    }
+    .step strong { display: block; color: #e5e7eb; margin-bottom: 5px; }
+    .step.active { border-color: #60a5fa; background: #172554; color: #bfdbfe; }
+    .step.done { border-color: #34d399; }
+    .step.done strong { color: #6ee7b7; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button {
+      flex: 1; min-width: 140px; padding: 12px 16px; border: none; border-radius: 8px;
+      background: #2563eb; color: white; font-size: 14px; font-weight: bold; cursor: pointer;
+    }
+    button.secondary { background: #374151; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .consent { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+    .consent input { width: auto; margin-top: 3px; }
+    #status {
+      margin-top: 20px; padding: 12px; border-radius: 8px; background: #0b1120;
+      white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+    }
+    .hint { font-size: 12px; color: #9ca3af; line-height: 1.5; }
+    @media (max-width: 560px) {
+      body { padding: 12px; }
+      .panel { padding: 18px; }
+      .step-list { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>Sentinel Face Enrollment</h1>
+    <p class="subtitle">
+      Enroll one person using three webcam captures: straight, left, and right.
+      All captures will be submitted together for one face profile.
+    </p>
+
+    <label for="userId">User ID</label>
+    <input id="userId" type="number" min="1" value="1" required>
+
+    <label for="displayName">Person's display name</label>
+    <input id="displayName" type="text" placeholder="e.g. Namita" maxlength="100" required>
+
+    <label for="relationship">Relationship (optional)</label>
+    <input id="relationship" type="text" placeholder="e.g. Self, Family" maxlength="100">
+
+    <label for="cameraSelect">Camera</label>
+    <select id="cameraSelect"><option value="">Default camera</option></select>
+
+    <div class="step-list" aria-label="Enrollment capture steps">
+      <div class="step active" id="step-straight"><strong>1. Straight</strong>Look directly at the camera</div>
+      <div class="step" id="step-left"><strong>2. Left</strong>Turn your head slightly left</div>
+      <div class="step" id="step-right"><strong>3. Right</strong>Turn your head slightly right</div>
+    </div>
+
+    <div class="camera-frame">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <img id="photoPreview" alt="Captured face preview">
+    </div>
+
+    <p class="hint" id="poseHint">Look straight at the camera. Use good lighting and keep only the intended person in view.</p>
+
+    <div class="buttons">
+      <button id="startCamera">Start webcam</button>
+      <button id="capture" class="secondary" disabled>Capture straight</button>
+      <button id="retake" class="secondary" disabled>Retake current capture</button>
+    </div>
+
+    <p class="hint" id="captureCount">Captured: 0 of 3</p>
+
+    <label class="consent">
+      <input id="consent" type="checkbox">
+      <span>I have the person's permission to enroll their face for this surveillance system.</span>
+    </label>
+
+    <div class="buttons">
+      <button id="enroll" disabled>Enroll all 3 captures</button>
+    </div>
+
+    <p id="status" role="status" aria-live="polite">Ready. Start the webcam to begin.</p>
+    <p class="hint">
+      Captures are sent to your local FastAPI server. This page does not implement liveness
+      detection or anti-spoofing. A head turn alone does not prove that a person is live.
+    </p>
+  </main>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const preview = document.getElementById("photoPreview");
+    const cameraSelect = document.getElementById("cameraSelect");
+    const startButton = document.getElementById("startCamera");
+    const captureButton = document.getElementById("capture");
+    const retakeButton = document.getElementById("retake");
+    const enrollButton = document.getElementById("enroll");
+    const consentCheckbox = document.getElementById("consent");
+    const statusBox = document.getElementById("status");
+    const poseHint = document.getElementById("poseHint");
+    const captureCount = document.getElementById("captureCount");
+
+    const steps = [
+      { key: "straight", label: "straight", instruction: "Look straight at the camera. Keep your face centered." },
+      { key: "left", label: "left", instruction: "Turn your head slightly to your left while keeping your face visible." },
+      { key: "right", label: "right", instruction: "Turn your head slightly to your right while keeping your face visible." }
+    ];
+
+    let cameraStream = null;
+    let currentIndex = 0;
+    let captures = { straight: null, left: null, right: null };
+
+    function setStatus(message) { statusBox.textContent = message; }
+
+    function refreshUI() {
+      steps.forEach((step, index) => {
+        const card = document.getElementById(`step-${step.key}`);
+        card.classList.toggle("active", index === currentIndex);
+        card.classList.toggle("done", Boolean(captures[step.key]));
+      });
+      poseHint.textContent = steps[currentIndex].instruction;
+      captureButton.textContent = `Capture ${steps[currentIndex].label}`;
+      captureCount.textContent = `Captured: ${steps.filter(s => captures[s.key]).length} of 3`;
+      retakeButton.disabled = !captures[steps[currentIndex].key];
+      enrollButton.disabled = !steps.every(s => captures[s.key]) || !consentCheckbox.checked;
+    }
+
+    async function loadCameras() {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === "videoinput");
+        const selected = cameraSelect.value;
+        cameraSelect.replaceChildren(new Option("Default camera", ""));
+        cameras.forEach((camera, index) => cameraSelect.add(new Option(camera.label || `Camera ${index + 1}`, camera.deviceId)));
+        if ([...cameraSelect.options].some(option => option.value === selected)) cameraSelect.value = selected;
+      } catch (error) { console.warn("Could not list cameras:", error); }
+    }
+
+    async function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      video.srcObject = null;
+    }
+
+    async function startCamera() {
+      try {
+        await stopCamera();
+        const selectedCamera = cameraSelect.value;
+        const videoConstraints = selectedCamera
+          ? { deviceId: { exact: selectedCamera }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } };
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+        video.srcObject = cameraStream;
+        video.style.display = "block";
+        preview.style.display = "none";
+        await video.play();
+        captureButton.disabled = false;
+        await loadCameras();
+        refreshUI();
+        setStatus("Webcam started. Follow the three pose prompts and capture each view.");
+      } catch (error) {
+        setStatus("Could not start the webcam.\n" + error.message +
+          "\n\nAllow camera permission and open this page from localhost or HTTPS.");
+      }
+    }
+
+    async function capturePhoto() {
+      if (!cameraStream || !video.videoWidth) {
+        setStatus("Start the webcam and wait for the video to load.");
+        return;
+      }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) {
+        setStatus("Could not capture the image. Please try again.");
+        return;
+      }
+
+      const key = steps[currentIndex].key;
+      captures[key] = blob;
+      preview.src = URL.createObjectURL(blob);
+      preview.style.display = "block";
+      video.style.display = "none";
+      captureButton.disabled = true;
+      retakeButton.disabled = false;
+      refreshUI();
+      setStatus(`${steps[currentIndex].label[0].toUpperCase() + steps[currentIndex].label.slice(1)} capture saved in this page. Review it, then continue.`);
+    }
+
+    function retakeCurrent() {
+      const key = steps[currentIndex].key;
+      captures[key] = null;
+      if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
+      preview.removeAttribute("src");
+      preview.style.display = "none";
+      video.style.display = "block";
+      captureButton.disabled = !cameraStream;
+      refreshUI();
+      setStatus(`Ready to retake the ${steps[currentIndex].label} capture.`);
+    }
+
+    function nextCapture() {
+      if (!captures[steps[currentIndex].key]) {
+        setStatus(`Capture the ${steps[currentIndex].label} view before continuing.`);
+        return;
+      }
+      if (currentIndex < steps.length - 1) {
+        currentIndex += 1;
+        if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
+        preview.removeAttribute("src");
+        preview.style.display = "none";
+        video.style.display = "block";
+        captureButton.disabled = !cameraStream;
+        refreshUI();
+        setStatus(`Next: ${steps[currentIndex].instruction}`);
+      } else {
+        refreshUI();
+        setStatus("All three views are captured. Review each step if needed, then enroll.");
+      }
+    }
+
+    // Clicking a step card lets the user review or retake that pose.
+    steps.forEach((step, index) => {
+      const card = document.getElementById(`step-${step.key}`);
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.style.cursor = "pointer";
+      card.addEventListener("click", () => {
+        currentIndex = index;
+        if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
+        preview.removeAttribute("src");
+        preview.style.display = "none";
+        video.style.display = "block";
+        captureButton.disabled = !cameraStream;
+        refreshUI();
+        setStatus(captures[step.key] ? `The ${step.label} view is already captured. Retake it if needed.` : steps[index].instruction);
+      });
+      card.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); card.click(); }
+      });
+    });
+
+    async function enrollFace() {
+      const userId = document.getElementById("userId").value.trim();
+      const displayName = document.getElementById("displayName").value.trim();
+      const relationship = document.getElementById("relationship").value.trim();
+
+      if (!userId || !Number.isInteger(Number(userId)) || Number(userId) < 1) {
+        setStatus("Enter a valid positive integer user ID."); return;
+      }
+      if (!displayName) { setStatus("Enter the person's display name."); return; }
+      if (!steps.every(step => captures[step.key])) { setStatus("Capture straight, left, and right views first."); return; }
+      if (!consentCheckbox.checked) { setStatus("Consent is required before enrollment."); return; }
+
+      const formData = new FormData();
+      formData.append("display_name", displayName);
+      formData.append("consent_given", "true");
+      formData.append("source", "live_capture");
+      if (relationship) formData.append("relationship_label", relationship);
+      steps.forEach(step => formData.append(`${step.key}_image`, captures[step.key], `webcam_${step.key}.jpg`));
+
+      enrollButton.disabled = true;
+      setStatus("Submitting three face captures to Sentinel...");
+      try {
+        // Requires the matching multi-image backend endpoint; the current single-image
+        // endpoint will not accept this request until the backend is updated.
+        const response = await fetch(`${API_BASE}/face-profiles/${encodeURIComponent(userId)}/enroll-multi`, {
+          method: "POST", body: formData
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(typeof result.detail === "string" ? result.detail : JSON.stringify(result.detail || result));
+        }
+        setStatus("Enrollment successful!\n\n" + JSON.stringify(result, null, 2));
+      } catch (error) {
+        setStatus("Enrollment was not completed.\n" + error.message +
+          "\n\nThis page now sends three images to /enroll-multi. The matching backend endpoint must be added before enrollment can succeed. Your existing single-image endpoint has not been changed.");
+      } finally {
+        refreshUI();
+      }
+    }
+
+    startButton.addEventListener("click", startCamera);
+    captureButton.addEventListener("click", capturePhoto);
+    retakeButton.addEventListener("click", retakeCurrent);
+    enrollButton.addEventListener("click", enrollFace);
+    consentCheckbox.addEventListener("change", refreshUI);
+    cameraSelect.addEventListener("change", async () => { if (cameraStream) await startCamera(); });
+    window.addEventListener("beforeunload", () => {
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+      steps.forEach(step => {
+        const blob = captures[step.key];
+        if (blob) captures[step.key] = null;
+      });
+      if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
+    });
+    loadCameras();
+    refreshUI();
+  </script>
+</body>
+</html>
