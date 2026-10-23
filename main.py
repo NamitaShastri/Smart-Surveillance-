@@ -7,7 +7,7 @@ import cv2
 from pathlib import Path
 from insightface.app import FaceAnalysis
 
-from convert_recordings import convert_recordings_to_mp4
+from convert_recordings import convert_recordings_to_mp4, stamp_hourly_recording
 
 # ---------------- CONFIGURATION ----------------
 
@@ -305,8 +305,10 @@ for result in results:
                 f"Could not save event for track {track_id}: {error}"
             )
 
-# Make the saved video playable in the browser (.avi -> .mp4).
-convert_recordings_to_mp4(RUNS_DIR / f"camera_{CAMERA_ID}")
+# File this recording under its hour (one recording per hour), then make it browser-playable.
+camera_folder = RUNS_DIR / f"camera_{CAMERA_ID}"
+stamp_hourly_recording(camera_folder, Path(VIDEO_PATH).stem)
+convert_recordings_to_mp4(camera_folder)
 
 print("\nPerson tracking and recognition finished!")
 print(f"New events created: {events_created}")

@@ -173,176 +173,106 @@ function authTab(tab) {
 
 
 
-function hourLabel(h) {
-  const fmt = (n) => `${String(n % 24).padStart(2, "0")}:00`;
-  return `${fmt(h.start)} – ${fmt(h.end)}`;
+
+
+const hourText = (h) => new Date(2000, 0, 1, h).toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
+const recordedAt = (r) => r.recorded_at || r.modified_at;
+const noVideoStage = (title, text) =>
+  `<div class="video-placeholder"><span class="play-large">—</span><strong>${title}</strong><p>${text}</p></div>`;
+
+function setPlaybackButtons(enabled) {
+  $("#playLocalBtn").disabled = !enabled;
+  $("#downloadInfoBtn").disabled = !enabled;
 }
 
+// Shows all 24 hours of the selected day. Like a real CCTV recorder, each hour
+// holds at most one recording (the newest file if more than one was saved).
 async function renderHours() {
-    const date = $("#archiveDate").value;
-    if (!date) {
-      $("#hourlyList").innerHTML = `
-        <div class="empty-state">
-          <strong>Select a date</strong>
-          <p>Choose a date to view available recordings.</p>
-        </div>`;
+  const date = $("#archiveDate").value;
+  const list = $("#hourlyList");
+  const cameraId = Number($("#archiveCamera").value);
+  archiveHours = [];
+  setPlaybackButtons(false);
+
+  if (!date) {
+    list.innerHTML = '<p class="hour-message">Choose a date to view its recordings.</p>';
+    return;
+  }
+  $("#archiveDateTitle").textContent = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+  if (!cameraId) {
+    list.innerHTML = '<p class="hour-message">Add a camera first to browse its recordings.</p>';
+    $("#archiveSummaryText").textContent = "No cameras";
+    $("#videoStage").innerHTML = noVideoStage("No camera", "Add a camera on the Connect CCTV page.");
+    return;
+  }
+  list.innerHTML = '<p class="hour-message">Loading saved recordings...</p>';
+
+  try {
+    archiveRecordings = await apiRequest(`/recordings?camera_id=${cameraId}`);
+    const daily = archiveRecordings
+      .filter((r) => dayKey(recordedAt(r)) === date)
+      .sort((a, b) => new Date(recordedAt(b)) - new Date(recordedAt(a)));
+
+    archiveHours = Array.from({ length: 24 }, (_, hour) => {
+      const inHour = daily.filter((r) => new Date(recordedAt(r)).getHours() === hour);
+      return { hour, label: hourText(hour), recordings: inHour.slice(0, 1), older: Math.max(0, inHour.length - 1) };
+    });
+    const recorded = archiveHours.filter((h) => h.recordings.length);
+    $("#archiveSummaryText").textContent = recorded.length
+      ? `${recorded.length} of 24 hours recorded`
+      : "No video recorded on this date";
+
+    list.innerHTML = archiveHours
+      .map((h) => {
+        const has = h.recordings.length > 0;
+        return `<button type="button" class="hour-row ${has ? "has-video" : "no-video"}" data-hour="${h.hour}" title="${has ? "Recording available" : "No video recorded"}"><span class="hour-label">${h.label}</span><span class="hour-bar ${has ? "" : "empty"}"><span style="width:100%"></span></span><span class="clip-count">${has ? "●" : "—"}</span></button>`;
+      })
+      .join("");
+
+    // Keep the chosen hour if there is one, otherwise open the latest recorded hour.
+    if (selectedHour === null || !archiveHours[selectedHour]) {
+      selectedHour = recorded.length ? recorded[recorded.length - 1].hour : null;
+    }
+    if (selectedHour === null) {
+      $("#playHour").textContent = "—";
+      $("#playbackSubhead").textContent = "Select an hour to preview its recording.";
+      $("#videoStage").innerHTML = noVideoStage("No video recorded", "Nothing was recorded on this date. You can still pick any hour.");
       return;
     }
-
-    const list = $("#hourlyList");
-    const cameraId = Number($("#archiveCamera").value);
-    if (!cameraId) {
-      list.innerHTML = `<p>Add a camera first to browse its recordings.</p>`;
-      $("#archiveSummaryText").textContent = "No cameras";
-      return;
-    }
-    list.innerHTML = `<p>Loading saved recordings...</p>`;
-
-    try {
-        archiveRecordings = await apiRequest(`/recordings?camera_id=${cameraId}`);
-
-        // Keep recordings belonging to the selected calendar date.
-        const dailyRecordings = archiveRecordings.filter(recording => {
-            const recordingDate = new Date(recording.modified_at);
-            const year = recordingDate.getFullYear();
-            const month = String(recordingDate.getMonth() + 1).padStart(2, "0");
-            const day = String(recordingDate.getDate()).padStart(2, "0");
-
-            return `${year}-${month}-${day}` === date;
-        });
-
-        // Group saved files by their actual modification hour.
-        const grouped = new Map();
-
-        dailyRecordings.forEach(recording => {
-            const recordingDate = new Date(recording.modified_at);
-            const hour = recordingDate.getHours();
-
-            if (!grouped.has(hour)) {
-                grouped.set(hour, []);
-            }
-
-            grouped.get(hour).push(recording);
-        });
-
-        archiveHours = [...grouped.entries()]
-            .sort((a, b) => a[0] - b[0])
-            .map(([hour, recordings]) => ({
-                hour,
-                recordings,
-                clips: recordings.length,
-                amount: 100,
-                label: new Date(2000, 0, 1, hour).toLocaleTimeString(
-                    "en-US",
-                    { hour: "numeric", hour12: true }
-                )
-            }));
-
-        $("#archiveSummaryText").textContent =
-            `${dailyRecordings.length} saved recording(s) · real archive`;
-
-        if (archiveHours.length === 0) {
-            list.innerHTML = `
-                <p>No saved recordings for ${date}.</p>
-            `;
-
-            $("#videoStage").innerHTML = `
-                <div class="video-placeholder">
-                    <span class="play-large">—</span>
-                    <strong>No saved footage</strong>
-                    <p>Choose a date that has recordings.</p>
-                </div>
-            `;
-
-            $("#playLocalBtn").disabled = true;
-            return;
-        }
-
-        list.innerHTML = archiveHours.map((h, i) => `
-            <button
-                class="hour-row ${selectedHour === i ? "selected" : ""}"
-                data-hour-index="${i}"
-            >
-                <span class="hour-label">${h.label}</span>
-                <span class="hour-bar">
-                    <span style="width: 100%"></span>
-                </span>
-                <span class="clip-count">${h.clips}</span>
-            </button>
-        `).join("");
-
-        list.querySelectorAll(".hour-row").forEach(button => {
-            button.addEventListener("click", () => {
-                selectHour(Number(button.dataset.hourIndex));
-            });
-        });
-
-        // Select the first available hour when the previous selection
-        // doesn't exist for this date.
-        if (!archiveHours[selectedHour]) {
-            selectedHour = 0;
-        }
-
-        selectHour(selectedHour);
-
-    } catch (error) {
-        console.error("Failed to load archive recordings:", error);
-
-        $("#archiveSummaryText").textContent =
-            "Unable to load recordings";
-
-        list.innerHTML = `
-            <p>Couldn't load saved recordings. Check that the backend is running.</p>
-        `;
-    }
+    selectHour(selectedHour);
+  } catch (error) {
+    console.error("Failed to load archive recordings:", error);
+    $("#archiveSummaryText").textContent = "Unable to load recordings";
+    list.innerHTML = '<p class="hour-message">Couldn\'t load saved recordings. Check that the backend is running.</p>';
+  }
 }
 
-
-
-function selectHour(index) {
-  selectedHour = index;
-
-  const h = archiveHours[index];
+function selectHour(hour) {
+  selectedHour = hour;
+  const h = archiveHours[hour];
   if (!h) return;
 
   const cam = $("#archiveCamera").selectedOptions[0]?.textContent || "";
-  const stage = $("#videoStage");
-
   $("#playCamera").textContent = cam;
   $("#playHour").textContent = h.label;
   $("#playbackSubhead").textContent = `${h.label} · ${cam}`;
 
-  $("#playLocalBtn").disabled = !h.recordings.length;
-
-  document.querySelectorAll(".hour-row").forEach((button, i) => {
-    button.classList.toggle("selected", i === index);
-  });
+  const row = [...document.querySelectorAll(".hour-row")].find((b) => Number(b.dataset.hour) === hour);
+  document.querySelectorAll(".hour-row").forEach((b) => b.classList.toggle("selected", b === row));
+  row?.scrollIntoView?.({ block: "nearest" });
 
   const recording = h.recordings[0];
-
-  if (!recording) {
-    stage.innerHTML = `
-      <div class="video-placeholder">
-        <span class="play-large">—</span>
-        <strong>No saved footage</strong>
-        <p>No recording is available for this hour.</p>
-      </div>
-    `;
-    return;
-  }
-
-
-  // const videoUrl =
-  // `${API_BASE}${recording.playback_url}?t=${Date.now()}`;
-
-  stage.innerHTML = `
-    <div class="video-placeholder">
-      <span class="play-large">▶</span>
-      <strong>${recording.filename}</strong>
-      <p>Press Play preview to watch this recording.</p>
-    </div>
-  `;
+  setPlaybackButtons(Boolean(recording));
+  $("#videoStage").innerHTML = recording
+    ? `<div class="video-placeholder"><span class="play-large">▶</span><strong>${escapeHtml(recording.filename)}</strong><p>Press Play preview to watch this recording.</p></div>`
+    : noVideoStage("No video recorded", `There is no footage for ${h.label} on this date.`);
 }
+
+
+
+
 
 
 function exportCsv() {
@@ -1170,28 +1100,29 @@ function init() {
       '<div class="video-placeholder"><span class="play-large">▶</span><strong>No hour selected</strong><p>Choose an available hour from the archive.</p></div>';
     renderHours();
   });
+  $("#hourlyList").addEventListener("click", (e) => {
+    const row = e.target.closest(".hour-row");
+    if (row) selectHour(Number(row.dataset.hour));
+  });
   $("#downloadInfoBtn").addEventListener("click", () => {
-  const hour = archiveHours[selectedHour];
-  const recording = hour?.recordings?.[0];
-
-  if (!recording) {
-    showToast("Select an hour with a saved recording first.");
-    return;
-  }
-
-  openModal(
-    "Recording details",
-    `
-      <p><strong>File:</strong> ${escapeHtml(recording.filename || "Recording")}</p>
-      <p><strong>Date:</strong> ${escapeHtml($("#archiveDate").value || "—")}</p>
-      <p><strong>Hour:</strong> ${escapeHtml(hourLabel(hour))}</p>
-      <p><strong>Status:</strong> Recording metadata available</p>
-      <button class="primary-btn close-modal-action" type="button">
-        Close details
-      </button>
-    `
-  );
-});
+    const h = archiveHours[selectedHour];
+    const recording = h?.recordings?.[0];
+    if (!recording) {
+      showToast("No video was recorded for this hour.");
+      return;
+    }
+    const mb = recording.size_bytes ? `${(recording.size_bytes / 1048576).toFixed(1)} MB` : "—";
+    openModal(
+      "Recording details",
+      `<p><strong>File:</strong> ${escapeHtml(recording.filename)}</p>
+       <p><strong>Camera:</strong> ${escapeHtml($("#archiveCamera").selectedOptions[0]?.textContent || "")}</p>
+       <p><strong>Date:</strong> ${escapeHtml($("#archiveDate").value)}</p>
+       <p><strong>Hour:</strong> ${escapeHtml(h.label)}</p>
+       <p><strong>Size:</strong> ${mb} · ${escapeHtml(recording.format || "video")}</p>
+       ${h.older ? `<p class="muted">${h.older} older file${h.older === 1 ? " is" : "s are"} also saved for this hour. Only the newest is shown.</p>` : ""}
+       <button class="primary-btn close-modal-action" type="button">Close details</button>`,
+    );
+  });
   $("#closeModal").addEventListener("click", () => $("#modalBackdrop").classList.add("hidden"));
   $("#modalContent").addEventListener("click", (e) => {
     if (e.target.closest(".close-modal-action")) $("#modalBackdrop").classList.add("hidden");

@@ -1,5 +1,6 @@
 import mimetypes
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -176,12 +177,19 @@ def list_recordings(
             if not file_path.is_file() or file_path.suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS:
                 continue
             stat = file_path.stat()
+            modified_at = datetime.fromtimestamp(stat.st_mtime).astimezone()
+            # Files named like 2026-10-22_16h belong to that hour, whenever they were written.
+            slot = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})h", file_path.stem)
+            recorded_at = (
+                datetime(*map(int, slot.groups())).astimezone() if slot else modified_at
+            )
             recordings.append({
                 "filename": file_path.name,
                 "camera_id": camera.id,
                 "camera_name": camera.name,
                 "size_bytes": stat.st_size,
-                "modified_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(),
+                "modified_at": modified_at.isoformat(),
+                "recorded_at": recorded_at.isoformat(),
                 "playback_url": f"/recordings/{camera.id}/{quote(file_path.name)}",
                 "format": file_path.suffix.lower().lstrip("."),
                 "_mtime": stat.st_mtime,

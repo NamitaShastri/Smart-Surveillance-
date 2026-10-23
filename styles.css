@@ -3050,3 +3050,29 @@
     grid-template-columns: 1fr
   }
 }
+
+/* ---- Recording archive: 24-hour list ---- */
+.hourly-list {
+  max-height: 520px;
+  overflow-y: auto
+}
+
+.hour-row.no-video .hour-label,
+.hour-row.no-video .clip-count {
+  color: var(--muted)
+}
+
+.hour-row.has-video .clip-count {
+  color: var(--accent)
+}
+
+.hour-message {
+  padding: 14px 3px;
+  color: var(--muted);
+  font-size: 11px
+}
+
+.playback-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed
+}

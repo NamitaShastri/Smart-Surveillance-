@@ -6,6 +6,7 @@ Used automatically by main.py after each run. To convert existing files:
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 RUNS_DIR = Path(__file__).resolve().parent / "runs" / "detect"
@@ -24,10 +25,27 @@ def find_ffmpeg():
         return None
 
 
-def convert_recordings_to_mp4(folder):
-    """Convert every .avi in `folder` to .mp4, deleting the .avi only if that worked."""
+def stamp_hourly_recording(folder, source_stem, when=None):
+    """Name YOLO's output after the hour it belongs to (e.g. 2026-10-22_16h).
+
+    Like a real CCTV recorder, each hour holds ONE recording: a newer run in the same
+    hour replaces the older one once its conversion succeeds. The staging file uses the
+    .raw extension, so the API never lists a half-finished recording.
+    """
     folder = Path(folder)
-    avis = sorted(folder.glob("*.avi"))
+    when = when or datetime.now()
+    for produced in sorted(folder.glob(f"{source_stem}.*")):
+        if produced.suffix.lower() in {".avi", ".mp4", ".mkv", ".mov"}:
+            staged = folder / f"{when:%Y-%m-%d_%H}h.raw"
+            produced.replace(staged)
+            return staged
+    return None
+
+
+def convert_recordings_to_mp4(folder):
+    """Convert every .avi / .raw in `folder` to .mp4, deleting the source only if that worked."""
+    folder = Path(folder)
+    avis = sorted([*folder.glob("*.avi"), *folder.glob("*.raw")])
     if not avis:
         return
 
@@ -39,7 +57,7 @@ def convert_recordings_to_mp4(folder):
         )
         return
 
-    for avi in avis:
+    for avi in avis:  # (the variable name is historical: it may be .avi or .raw)
         mp4 = avi.with_suffix(".mp4")
         part = avi.with_name(avi.stem + ".mp4.part")  # never listed by the API
         command = [
