@@ -125,3 +125,5 @@ namita_test.mp4
 .env.production.local
 run_backend.ps1
 run_pipeline.ps1
+
+auth.py

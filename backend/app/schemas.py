@@ -94,6 +94,10 @@ class CameraCreate(BaseModel):
     source: str | None = None
 
 
+class CameraStatusUpdate(BaseModel):
+    status: Literal["online", "offline"]
+
+
 class CameraResponse(CameraCreate):
     id: int
     location_id: int
@@ -124,3 +128,15 @@ class DetectionEventResponse(DetectionEventCreate):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(IST)
+
+
+class RecordingDeleteRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, v):
+        v = " ".join(v.split())
+        if len(v) < 3:
+            raise ValueError("Please give a reason (at least 3 characters)")
+        return v

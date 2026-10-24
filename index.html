@@ -96,8 +96,8 @@
       </div>
       <div class="sidebar-user">
         <div class="avatar" id="sidebarAvatar">JS</div>
-        <div class="user-lines"><strong id="sidebarName">Namita Shastri</strong><small
-            id="sidebarEmail">Namita@example.com</small></div>
+        <div class="user-lines"><strong id="sidebarName">Jules Shastri</strong><small
+            id="sidebarEmail">jules@example.com</small></div>
         <button id="sidebarUserMenuBtn" class="dots-btn" aria-label="User menu">•••</button>
       </div>
     </aside>
@@ -109,14 +109,14 @@
         <div class="top-actions">
           <div class="system-status"><span class="pulse-dot" id="sysDot"></span> <span id="sysStatusText">Checking…</span></div>
           <button id="themeBtn" class="icon-btn" aria-label="Toggle theme" title="Toggle light/dark mode">☼</button>
-          <button class="icon-btn notification-btn" id="notificationBtn" aria-label="Notifications">♧<i></i></button>
+          <button class="icon-btn notification-btn" id="notificationBtn" aria-label="Camera simulator" title="Camera simulator (demo mode)">♧<i></i></button>
           <div class="profile-wrap">
             <button id="profileBtn" class="profile-button"><span class="avatar" id="topAvatar">JS</span><span
                 class="profile-name" id="topName">Jules Shastri</span><span class="chevron">⌄</span></button>
             <div id="profileMenu" class="profile-menu hidden">
               <div class="profile-menu-top">
                 <div class="avatar" id="menuAvatar">JS</div>
-                <div><strong id="menuName">Namita Shastri</strong><small id="menuEmail">Namita@example.com</small></div>
+                <div><strong id="menuName">Jules Shastri</strong><small id="menuEmail">jules@example.com</small></div>
               </div>
               <button id="profileHelpBtn">ⓘ &nbsp; Help & support</button>
               <div class="menu-divider"></div><button id="signOutBtn" class="signout-btn">↪ &nbsp; Sign out</button>
@@ -395,7 +395,7 @@
                 <div><span>SELECTED HOUR</span><strong id="playHour">—</strong></div>
               </div>
               <div class="playback-actions"><button id="playLocalBtn" class="primary-btn" disabled>▶ Play
-                  preview</button><button id="downloadInfoBtn" class="secondary-btn">Recording details</button></div>
+                  preview</button><button id="downloadInfoBtn" class="secondary-btn">Recording details</button><button id="deleteRecordingBtn" class="secondary-btn danger-btn" disabled>Delete recording</button></div>
               <p class="small-note">Every hour of the day is listed. Each hour holds one recording; hours with no video say so. Press Play preview to stream it from the backend.
             </section>
           </div>
@@ -480,6 +480,54 @@
       <div id="modalContent"></div>
     </div>
   </div>
+  <aside id="demoDock" class="demo-dock hidden" aria-label="Camera simulator">
+    <div class="demo-head">
+      <div><strong>Camera simulator</strong><small>Your webcam acts as a CCTV camera for demos</small></div>
+      <button type="button" class="icon-btn" id="demoCloseBtn" aria-label="Close simulator">×</button>
+    </div>
+    <div class="mode-toggle" role="tablist">
+      <button type="button" class="mode-btn active" data-demo-tab="live" role="tab">◉ Live camera</button>
+      <button type="button" class="mode-btn" data-demo-tab="event" role="tab">＋ Add event</button>
+    </div>
+
+    <div id="demoLive" class="demo-pane">
+      <div class="live-frame">
+        <canvas id="demoCanvas" width="640" height="480"></canvas>
+        <div id="demoOff" class="live-off"><strong>Camera is off</strong><span>Press “Start camera” to begin.</span></div>
+        <span id="demoRec" class="demo-rec hidden">● REC</span>
+      </div>
+      <p class="small-note" id="demoStatus">Add your face on the Known people page first, then start the camera.</p>
+      <p class="demo-warn hidden" id="demoWarn" role="alert">⚠ Recording in progress. Long recordings are auto-saved every 10 minutes and at each hour. Moving to “+ Add event” or closing this panel stops it and the footage since the last auto-save will <strong>not</strong> be saved. Click <strong>Stop &amp; save</strong> to keep it in the Recording archive.</p>
+      <p class="small-note" id="demoSaveNote"></p>
+      <div class="live-buttons">
+        <button type="button" class="primary-btn" id="demoStartBtn">Start camera</button>
+        <button type="button" class="secondary-btn" id="demoStopBtn" disabled>Stop &amp; save</button>
+      </div>
+      <div id="demoLog" class="demo-log"></div>
+    </div>
+
+    <form id="demoEventForm" class="demo-pane hidden">
+      <label>Camera<select id="demoEventCamera"></select></label>
+      <label>Event type
+        <select id="demoEventType">
+          <option value="person_detected">Person detected</option>
+          <option value="motion_detected">Motion detected</option>
+          <option value="object_left_behind">Object left behind</option>
+          <option value="door_opened">Door opened</option>
+        </select>
+      </label>
+      <label>Person
+        <input id="demoEventPerson" list="demoPeople" maxlength="100" placeholder="Unknown person">
+        <datalist id="demoPeople"></datalist>
+      </label>
+      <label>Confidence % (optional)<input id="demoEventConf" type="number" min="0" max="100" step="1" placeholder="e.g. 92"></label>
+      <label>Details<input id="demoEventDetails" maxlength="300" placeholder="e.g. Delivery person at the gate"></label>
+      <label>Time<input id="demoEventTime" type="datetime-local"></label>
+      <button class="primary-btn full-btn" type="submit">+ Add event</button>
+      <p id="demoEventMsg" class="auth-message" role="status"></p>
+    </form>
+  </aside>
+
   <script src="script.js"></script>
 </body>
 

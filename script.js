@@ -127,6 +127,9 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
 function goPage(page) {
+  try {
+    sessionStorage.setItem("sentinel-page", page);
+  } catch {}
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${page}`));
   $$("[data-page]").forEach((b) =>
     b.classList.toggle("active", b.classList.contains("nav-item") && b.dataset.page === page),
@@ -183,6 +186,60 @@ const noVideoStage = (title, text) =>
 function setPlaybackButtons(enabled) {
   $("#playLocalBtn").disabled = !enabled;
   $("#downloadInfoBtn").disabled = !enabled;
+  $("#deleteRecordingBtn").disabled = !enabled;
+}
+
+const DELETE_REASONS = ["Recorded by mistake", "Test or demo footage", "Privacy request", "Free up storage", "Other"];
+
+function openDeleteRecording() {
+  const h = archiveHours[selectedHour];
+  const recording = h?.recordings?.[0];
+  if (!recording) {
+    showToast("No video was recorded for this hour.");
+    return;
+  }
+  const cam = $("#archiveCamera").selectedOptions[0]?.textContent || "";
+  openModal(
+    "Delete recording",
+    `<p>This permanently deletes <strong>${escapeHtml(recording.filename)}</strong> (${escapeHtml(h.label)}, ${escapeHtml($("#archiveDate").value)}, ${escapeHtml(cam)}). It cannot be undone. The reason is kept in an audit log.</p>
+     <form id="deleteRecordingForm" class="delete-form" data-camera="${recording.camera_id}" data-file="${escapeHtml(recording.filename)}">
+       <label>Reason<select id="deleteReasonSelect">${DELETE_REASONS.map((r) => `<option>${r}</option>`).join("")}</select></label>
+       <label>Details <span class="muted">(required for “Other”)</span><textarea id="deleteReasonText" rows="3" maxlength="250" placeholder="Add a short explanation"></textarea></label>
+       <p id="deleteRecordingMsg" class="auth-message" role="alert"></p>
+       <div class="delete-actions">
+         <button class="primary-btn danger-btn" type="submit">Delete permanently</button>
+         <button class="secondary-btn close-modal-action" type="button">Cancel</button>
+       </div>
+     </form>`,
+  );
+}
+
+async function submitDeleteRecording(form) {
+  const message = $("#deleteRecordingMsg");
+  const choice = $("#deleteReasonSelect").value;
+  const details = $("#deleteReasonText").value.trim();
+  if (choice === "Other" && details.length < 3) {
+    message.textContent = "Please describe the reason (at least 3 characters).";
+    return;
+  }
+  const reason = details ? `${choice}: ${details}` : choice;
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  message.textContent = "Deleting…";
+  try {
+    await apiRequest(`/recordings/${form.dataset.camera}/${encodeURIComponent(form.dataset.file)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    $("#modalBackdrop").classList.add("hidden");
+    showToast("Recording deleted.");
+    loadRecordingCount();
+    await renderHours();
+  } catch (error) {
+    button.disabled = false;
+    message.textContent = `Could not delete: ${error.message}`;
+  }
 }
 
 // Shows all 24 hours of the selected day. Like a real CCTV recorder, each hour
@@ -445,6 +502,10 @@ function stopLiveCamera() {
 
 async function startLiveCamera() {
   const message = $("#knownPersonMessage");
+  if (demo.stream) {
+    message.textContent = "The camera simulator is using the webcam. Press Stop & save in the ♧ panel first.";
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) {
     message.textContent = "This browser can't access a webcam here. Open the dashboard from localhost or HTTPS, or use Upload photos.";
     return;
@@ -626,8 +687,24 @@ const dayKey = (d) => {
   const x = new Date(d);
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 };
-const isOnline = (c) =>
+const rawOnline = (c) =>
   ["online", "active", "connected", "running"].includes(String(c.status || "").toLowerCase());
+// The simulator's camera is online exactly while the simulator is running (never a stale database value).
+const isDemoCamera = (c) => c.name === DEMO_CAMERA && c.source === "browser-webcam";
+const isOnline = (c) => (isDemoCamera(c) ? Boolean(demo.stream) : rawOnline(c));
+// While the simulator is live, its card shows the live picture instead of the placeholder scene.
+const cameraArt = (c, art) =>
+  isDemoCamera(c) && demo.stream
+    ? '<canvas class="camera-live-canvas" data-live-cam width="640" height="480"></canvas>'
+    : `<div class="${art}"></div>`;
+function syncCameraViews() {
+  try {
+    renderCameras();
+    renderOverview();
+  } catch (error) {
+    console.error("Could not refresh camera cards:", error);
+  }
+}
 const camLabel = (c) => `CAM ${String(c.id).padStart(2, "0")}`;
 const maskSource = (s) => String(s || "Not set").replace(/\/\/[^/@]*@/, "//•••@");
 const SCENES = ["preview-drive", "preview-front", "preview-back"];
@@ -727,7 +804,7 @@ function renderOverview() {
         .map((c, i) => {
           const scene = sceneOf(i);
           const art = scene === "preview-drive" ? "scene-road" : scene === "preview-back" ? "scene-garden" : "scene-door";
-          return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span><div class="${art}"></div></div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : "Not connected"} · ${escapeHtml(c.siteName)}</small></div></div></article>`;
+          return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span>${cameraArt(c, art)}</div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : "Not connected"} · ${escapeHtml(c.siteName)}</small></div></div></article>`;
         })
         .join("")
     : '<div class="empty-state"><strong>No cameras yet</strong><p>Add a location and a camera on the Connect CCTV page.</p></div>';
@@ -737,19 +814,23 @@ function renderOverview() {
 function mapBackendEvent(event) {
   const label = event.person_label || "Unknown person";
   const type = event.event_type || "person_detected";
-  const known = label !== "Unknown person" && !label.startsWith("DEMO CANDIDATE:");
+  const left = type === "person_left";
+  const isPerson = type === "person_detected" || left;
+  const known = isPerson && !/^Unknown person( \d+)?$/.test(label) && !label.startsWith("DEMO CANDIDATE:");
   const cam = cameras.find((c) => c.id === event.camera_id);
-  const isPerson = type === "person_detected";
   const confidence = typeof event.confidence === "number" ? ` · ${Math.round(event.confidence * 100)}% confidence` : "";
   return {
     id: event.id,
     timestamp: event.timestamp,
     time: formatEventTime(event.timestamp),
-    title: isPerson ? (known ? `${label} detected` : "Person detected") : type.replaceAll("_", " "),
+    title: left
+      ? `${known ? label : label || "Unknown person"} left ${cam ? cam.name : "the camera"}`
+      : isPerson ? (known || label !== "Unknown person" ? `${label} detected` : "Person detected") : type.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase()),
     detail: (event.details || (isPerson ? "Person detection event." : "Detection event.")) + confidence,
     camera: cam ? cam.name : `Camera ${event.camera_id ?? "Unknown"}`,
     type: known ? "known" : isPerson ? "unknown" : "other",
-    icon: isPerson ? "♙" : "◉",
+    left,
+    icon: left ? "↪" : isPerson ? "♙" : "◉",
     color: known ? "green" : isPerson ? "purple" : "amber",
     recording: false,
   };
@@ -828,8 +909,8 @@ function renderEvents() {
   $("#eventCount").textContent = `${filtered.length} event${filtered.length === 1 ? "" : "s"}`;
   $("#noEvents").classList.toggle("hidden", filtered.length > 0);
   $("#evStatTotal").textContent = day.length;
-  $("#evStatKnown").textContent = day.filter((e) => e.type === "known").length;
-  $("#evStatUnknown").textContent = day.filter((e) => e.type === "unknown").length;
+  $("#evStatKnown").textContent = day.filter((e) => e.type === "known" && !e.left).length;
+  $("#evStatUnknown").textContent = day.filter((e) => e.type === "unknown" && !e.left).length;
   $("#evStatOther").textContent = day.filter((e) => e.type === "other").length;
   if (date) {
     const d = new Date(date + "T12:00:00");
@@ -839,12 +920,12 @@ function renderEvents() {
 }
 
 /* ---------- session ---------- */
-async function showApp(user) {
+async function showApp(user, startPage = "overview") {
   currentUser = user;
   syncUser();
   $("#authScreen").classList.add("hidden");
   $("#appShell").classList.remove("hidden");
-  goPage("overview");
+  goPage(startPage);
   await refreshWorkspace();
 }
 
@@ -855,6 +936,9 @@ async function startSession({ access_token, user }) {
 }
 
 function endSession() {
+  sessionStorage.removeItem("sentinel-page");
+  stopDemoCamera({ save: false });
+  $("#demoDock")?.classList.add("hidden");
   stopLiveCamera();
   resetLiveShots();
   authToken = null;
@@ -872,7 +956,7 @@ function endSession() {
 function renderCameraCard(c, i) {
   const scene = sceneOf(i);
   const art = scene === "preview-drive" ? "scene-road" : scene === "preview-back" ? "scene-garden" : "scene-door";
-  return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span><div class="${art}"></div></div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : escapeHtml(c.status || "Not connected")}</small><small class="camera-site-label">⌂ ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</small></div><button class="dots-btn camera-more" data-camera-index="${i}">•••</button></div><div class="camera-info camera-extra"><span class="muted" style="font-size:10px">${escapeHtml(maskSource(c.source))}</span><button class="text-btn remove-camera-btn" data-remove-camera="${i}">Remove</button></div></article>`;
+  return `<article class="camera-card"><div class="camera-preview ${scene}"><span class="preview-label"><i class="record-dot"></i> ${isOnline(c) ? "LIVE" : "OFFLINE"}</span><span class="camera-overlay">${camLabel(c)}</span>${cameraArt(c, art)}</div><div class="camera-info"><div><strong>${escapeHtml(c.name)}</strong><small><span class="${isOnline(c) ? "online-dot" : "offline-dot"}"></span> ${isOnline(c) ? "Online" : isDemoCamera(c) ? "Offline" : escapeHtml(c.status || "Not connected")}</small><small class="camera-site-label">⌂ ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</small></div><button class="dots-btn camera-more" data-camera-index="${i}">•••</button></div><div class="camera-info camera-extra"><span class="muted" style="font-size:10px">${escapeHtml(maskSource(c.source))}</span><button class="text-btn remove-camera-btn" data-remove-camera="${i}">Remove</button></div></article>`;
 }
 
 function renderCameras() {
@@ -907,7 +991,7 @@ function renderCameras() {
       if (c)
         openModal(
           "Camera details",
-          `<p><strong>${escapeHtml(c.name)}</strong></p><p>Location: ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</p><p>Status: ${escapeHtml(c.status || "unknown")}</p><p>Source: ${escapeHtml(maskSource(c.source))}</p><button class="primary-btn close-modal-action" type="button">Close</button>`,
+          `<p><strong>${escapeHtml(c.name)}</strong></p><p>Location: ${escapeHtml(c.siteName)} · ${escapeHtml(c.siteType)}</p><p>Status: ${escapeHtml(isOnline(c) ? "online" : isDemoCamera(c) ? "offline" : c.status || "unknown")}</p><p>Source: ${escapeHtml(maskSource(c.source))}</p><button class="primary-btn close-modal-action" type="button">Close</button>`,
         );
     }),
   );
@@ -987,6 +1071,640 @@ function openAddSiteModal() {
       $("#addSiteMessage").textContent = `Could not create location: ${error.message}`;
     }
   });
+}
+
+/* ---------- camera simulator: the webcam acts as a CCTV camera ---------- */
+const DEMO_SITE = "Demo lab";
+const DEMO_CAMERA = "Live webcam (demo)";
+const SCAN_MIN_GAP_MS = 400; // pause between checks; a new frame is sent as soon as the last answer arrives
+const LEAVE_AFTER_MS = 10000; // out of view this long = the person left
+const STRANGER_CONFIRM_CHECKS = 1; // checks a new stranger must be seen in before they count (1 = immediately; raise to ignore one-frame glitches)
+const STRANGER_SAME_SIM = 0.45; // face similarity at/above which two sightings are the same stranger
+const STRANGER_TRACK_SIM = 0.2; // lower bar when the face is in the same spot as a moment ago
+const STRANGER_MAX = 50;
+const MAX_SESSION_MS = 12 * 60 * 60 * 1000; // safety cap; long sessions are auto-saved in pieces
+const SEGMENT_MS = 10 * 60 * 1000; // auto-save at least this often (and at every clock hour)
+const demo = { stream: null, video: null, drawTimer: null, scanTimer: null, limitTimer: null, recorder: null, recStream: null, segTimer: null, pending: [], uploadChain: Promise.resolve(), savedHours: new Set(), lastError: "", busy: false, camera: null, session: "", present: new Map(), pendingLeaves: [], strangers: [], strangerNo: 0, counter: 0, overlay: "", unknownStreak: 0, faces: [], facesAt: 0, faceW: 0, faceH: 0 };
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const clockText = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+
+async function reloadCameras() {
+  await loadWorkspace();
+  renderCameras();
+  fillArchiveCameras();
+  renderOverview();
+}
+
+// The simulator needs a camera record in the database; create it the first time.
+async function ensureDemoCamera() {
+  let site = sites.find((s) => s.name === DEMO_SITE);
+  if (!site) {
+    await apiRequest("/locations", postJson({ name: DEMO_SITE, address: "Browser webcam", type: "Other" }));
+    await loadWorkspace();
+    site = sites.find((s) => s.name === DEMO_SITE);
+  }
+  let camera = cameras.find((c) => c.siteId === site.id && c.name === DEMO_CAMERA);
+  if (!camera) {
+    await apiRequest(`/locations/${site.id}/cameras`, postJson({ name: DEMO_CAMERA, source: "browser-webcam" }));
+    await loadWorkspace();
+    camera = cameras.find((c) => c.siteId === site.id && c.name === DEMO_CAMERA);
+  }
+  renderCameras();
+  fillArchiveCameras();
+  renderOverview();
+  return camera;
+}
+
+const setCameraStatus = (id, status) =>
+  apiRequest(`/cameras/${id}/status`, { ...postJson({ status }), method: "PATCH" });
+
+function drawDemoFrame() {
+  const video = demo.video;
+  if (!video?.videoWidth) return;
+  const canvas = $("#demoCanvas");
+  const w = Math.min(640, video.videoWidth);
+  const h = Math.round((w * video.videoHeight) / video.videoWidth);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const g = canvas.getContext("2d");
+  g.drawImage(video, 0, 0, w, h);
+  // One box per face found in the latest check: green = known person, red = unknown.
+  if (demo.faces.length && demo.faceW && Date.now() - demo.facesAt < 2500) {
+    const sx = w / demo.faceW;
+    const sy = h / demo.faceH;
+    g.font = "bold 12px monospace";
+    g.textAlign = "left";
+    g.textBaseline = "alphabetic";
+    for (const face of demo.faces) {
+      const [x1, y1, x2, y2] = [face.box[0] * sx, face.box[1] * sy, face.box[2] * sx, face.box[3] * sy];
+      const color = face.known ? "#3ddc84" : "#ff5d5d";
+      g.strokeStyle = color;
+      g.lineWidth = 2;
+      g.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      const textWidth = g.measureText(face.label).width + 8;
+      const above = y1 > 44;
+      const labelY = above ? y1 - 18 : y2 + 2;
+      g.fillStyle = color;
+      g.fillRect(x1, labelY, textWidth, 16);
+      g.fillStyle = "#000";
+      g.fillText(face.label, x1 + 4, labelY + 12);
+    }
+  }
+  // CCTV-style burn-in, so the saved footage carries the camera name, time and detection.
+  g.fillStyle = "rgba(0,0,0,.55)";
+  g.fillRect(0, 0, w, 22);
+  g.fillRect(0, h - 26, w, 26);
+  g.fillStyle = "#fff";
+  g.font = "12px monospace";
+  g.textBaseline = "middle";
+  g.textAlign = "left";
+  g.fillText(`CAM ${pad2(demo.camera.id)} · ${DEMO_CAMERA}`, 8, 11);
+  g.fillText(demo.overlay, 8, h - 13);
+  g.textAlign = "right";
+  g.fillText(clockText(), w - 8, 11);
+  if (Math.floor(Date.now() / 500) % 2) {
+    g.fillStyle = "#ff4d4d";
+    g.beginPath();
+    g.arc(w - 12, h - 13, 5, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Mirror the same picture into the camera cards (Overview and Connect CCTV).
+  document.querySelectorAll("canvas[data-live-cam]").forEach((target) => {
+    if (target.offsetParent === null) return; // on a page that isn't showing
+    if (target.width !== w || target.height !== h) {
+      target.width = w;
+      target.height = h;
+    }
+    target.getContext("2d").drawImage(canvas, 0, 0);
+  });
+}
+
+function startDemoRecorder() {
+  demo.recorder = null;
+  if (typeof MediaRecorder === "undefined") return;
+  const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
+  demo.recStream ||= $("#demoCanvas").captureStream(15);
+  const recorder = new MediaRecorder(demo.recStream, mime ? { mimeType: mime, videoBitsPerSecond: 1500000 } : {});
+  recorder.chunks = []; // each segment keeps its own chunks
+  recorder.startedAt = Date.now();
+  recorder.ondataavailable = (e) => {
+    if (e.data?.size) recorder.chunks.push(e.data);
+  };
+  recorder.start(2000);
+  demo.recorder = recorder;
+  scheduleSegmentEnd();
+}
+
+// Stop a recorder and resolve with everything it captured (or null).
+function finishRecorder(recorder) {
+  return new Promise((resolve) => {
+    if (!recorder || recorder.state === "inactive") return resolve(null);
+    recorder.onstop = () => resolve(new Blob(recorder.chunks, { type: recorder.mimeType || "video/webm" }));
+    recorder.stop();
+  });
+}
+
+// Next auto-save: the top of the clock hour or SEGMENT_MS from now, whichever comes first.
+function scheduleSegmentEnd() {
+  clearTimeout(demo.segTimer);
+  const now = new Date();
+  const nextHour = new Date(now);
+  nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+  demo.segTimer = setTimeout(rollOverRecording, Math.min(SEGMENT_MS, nextHour - now));
+}
+
+// Uploads run one at a time, in order, because the server appends each piece to its hour file.
+function flushUploads() {
+  demo.uploadChain = demo.uploadChain.then(async () => {
+    while (demo.pending.length) {
+      const item = demo.pending[0];
+      try {
+        const form = new FormData();
+        form.append("video", item.blob, "webcam.webm");
+        form.append("ended_at", item.endedAt);
+        const saved = await apiRequest(`/cameras/${item.cameraId}/recordings`, { method: "POST", body: form });
+        demo.pending.shift();
+        saved.recordings.forEach((r) => demo.savedHours.add(parseInt(r.hour, 10)));
+        demo.lastError = "";
+      } catch (error) {
+        demo.lastError = error.message;
+        if (error.status >= 400 && error.status < 500) {
+          demo.pending.shift(); // the server rejected this piece; retrying won't help
+          continue;
+        }
+        break; // network / server trouble: keep it and retry on the next save
+      }
+    }
+  });
+  return demo.uploadChain;
+}
+
+function queueUpload(blob, endedAtMs, startedAtMs) {
+  if (!blob || blob.size === 0 || endedAtMs - startedAtMs < 1500) return flushUploads(); // too short to keep
+  demo.pending.push({ blob, endedAt: new Date(endedAtMs).toISOString(), cameraId: demo.camera.id });
+  return flushUploads();
+}
+
+// Save the footage so far and keep recording without a gap.
+async function rollOverRecording() {
+  const old = demo.recorder;
+  if (!demo.stream || !old) return;
+  const switchedAt = Date.now();
+  startDemoRecorder(); // the new piece starts first, so no frames are missed
+  const blob = await finishRecorder(old);
+  await queueUpload(blob, switchedAt, old.startedAt);
+  const note = $("#demoSaveNote");
+  if (demo.stream && note) {
+    note.textContent = demo.pending.length
+      ? `Auto-save failed (${demo.lastError}). Will retry at the next save.`
+      : `Auto-saved to the archive at ${new Date().toLocaleTimeString()}.`;
+  }
+  loadRecordingCount();
+  if ($("#page-recordings").classList.contains("active")) renderHours();
+}
+
+function addDemoLog(label, verb = "entered") {
+  const row = document.createElement("div");
+  row.className = "demo-log-row";
+  row.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${verb} · ${new Date().toLocaleTimeString()}</span>`;
+  $("#demoLog").prepend(row);
+  while ($("#demoLog").children.length > 5) $("#demoLog").lastChild.remove();
+}
+
+/* Presence: one "detected" event when a person comes into view and one "left" event when they
+   are out of view for LEAVE_AFTER_MS. Staying in view (even for hours) is a single visit; leaving
+   and coming back is a new visit with its own pair of events. */
+const fmtDuration = (ms) => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${total % 60}s` : `${total}s`;
+};
+
+async function postPresenceEvent(visit, kind, atMs, note = "") {
+  const left = kind === "leave";
+  const similarity = visit.similarity;
+  await apiRequest(
+    `/cameras/${demo.camera.id}/events`,
+    postJson({
+      event_type: left ? "person_left" : "person_detected",
+      person_label: visit.label,
+      confidence: left || similarity == null ? null : Math.min(1, Math.max(0, similarity)),
+      tracking_id: `${demo.session}-${visit.id}`,
+      details: left
+        ? `Left ${DEMO_CAMERA} · in view for ${fmtDuration(atMs - visit.enteredAt)}${note}`
+        : `Entered ${DEMO_CAMERA}${similarity == null ? "" : ` · face similarity ${similarity.toFixed(2)}`}`,
+      timestamp: new Date(atMs).toISOString(), // a departure is stamped with when they were last seen
+      event_key: `live:${demo.camera.id}:${demo.session}:${visit.id}:${kind}`, // the backend also refuses duplicates
+    }),
+  );
+}
+
+async function sendLeave(visit, atMs, note = "") {
+  try {
+    await postPresenceEvent(visit, "leave", atMs, note);
+    addDemoLog(visit.label, "left");
+    return true;
+  } catch (error) {
+    demo.pendingLeaves.push({ visit, atMs, note }); // retried on the next check
+    $("#demoStatus").textContent = `Could not save the event: ${error.message}`;
+    return false;
+  }
+}
+
+// `seen`: label -> similarity for everyone confirmed in view during this check.
+async function updatePresence(seen) {
+  const now = Date.now();
+  let changed = false;
+
+  for (const [label, similarity] of seen) {
+    let visit = demo.present.get(label);
+    if (!visit) {
+      demo.counter += 1;
+      visit = { id: demo.counter, label, enteredAt: now, lastSeen: now, similarity, entered: false };
+      demo.present.set(label, visit);
+    }
+    visit.lastSeen = now;
+    if (similarity != null) visit.similarity = similarity;
+  }
+
+  for (const visit of demo.present.values()) {
+    if (visit.entered) continue;
+    try {
+      await postPresenceEvent(visit, "enter", visit.enteredAt);
+      visit.entered = true;
+      addDemoLog(visit.label, "entered");
+      changed = true;
+    } catch (error) {
+      $("#demoStatus").textContent = `Could not save the event: ${error.message}`; // retried next check
+    }
+  }
+
+  for (const [label, visit] of [...demo.present]) {
+    if (seen.has(label) || now - visit.lastSeen < LEAVE_AFTER_MS) continue;
+    demo.present.delete(label);
+    if (visit.entered && (await sendLeave(visit, visit.lastSeen))) changed = true;
+  }
+
+  for (const queued of demo.pendingLeaves.splice(0)) {
+    if (await sendLeave(queued.visit, queued.atMs, queued.note)) changed = true;
+  }
+
+  if (changed) await loadBackendEvents({ silent: true });
+}
+
+// When the camera stops, close every open visit (stamped with the last time the person was seen).
+async function closeOpenVisits() {
+  const open = [...demo.present.values()];
+  demo.present.clear();
+  for (const visit of open) if (visit.entered) await sendLeave(visit, visit.lastSeen, " · camera stopped");
+  for (const queued of demo.pendingLeaves.splice(0)) await sendLeave(queued.visit, queued.atMs, queued.note);
+}
+
+/* Stranger tracking: every unrecognised person gets their own number ("Unknown person 1", 2, ...).
+   A face is the same stranger as before if its embedding is close to one seen earlier, or if it is
+   in the same spot as that stranger a moment ago. Nothing is stored beyond this camera session. */
+const faceDot = (a, b) => {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return sum;
+};
+function boxIou(a, b) {
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (w <= 0 || h <= 0) return 0;
+  const inter = w * h;
+  return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter);
+}
+
+// Returns, for each unknown face, the stranger record it belongs to (existing or new).
+function assignStrangers(faces) {
+  const now = Date.now();
+  const pairs = [];
+  faces.forEach((face, fi) => {
+    if (!Array.isArray(face.embedding)) return;
+    demo.strangers.forEach((s, si) => {
+      const sim = Math.max(...s.vectors.map((v) => faceDot(face.embedding, v)));
+      const sameSpot = now - s.seenAt < 3000 && boxIou(face.bbox, s.box) > 0.3;
+      if (sim >= STRANGER_SAME_SIM || (sameSpot && sim >= STRANGER_TRACK_SIM)) pairs.push({ fi, si, sim });
+    });
+  });
+  pairs.sort((a, b) => b.sim - a.sim); // best matches first; one stranger per face and vice versa
+  const byFace = new Map();
+  const taken = new Set();
+  for (const p of pairs) {
+    if (byFace.has(p.fi) || taken.has(p.si)) continue;
+    byFace.set(p.fi, demo.strangers[p.si]);
+    taken.add(p.si);
+  }
+  return faces.map((face, fi) => {
+    let stranger = byFace.get(fi);
+    if (!stranger) {
+      demo.strangerNo += 1;
+      stranger = { no: demo.strangerNo, vectors: [], box: face.bbox, seenAt: now, hits: 0 };
+      demo.strangers.push(stranger);
+      if (demo.strangers.length > STRANGER_MAX) {
+        demo.strangers.sort((a, b) => b.seenAt - a.seenAt);
+        demo.strangers.length = STRANGER_MAX;
+      }
+    }
+    stranger.box = face.bbox;
+    stranger.seenAt = now;
+    stranger.hits += 1;
+    if (Array.isArray(face.embedding)) {
+      // keep a few different views of the face (front, turned...) so a returning stranger still matches
+      const nearDuplicate = stranger.vectors.some((v) => faceDot(face.embedding, v) > 0.85);
+      if (!nearDuplicate) {
+        stranger.vectors.push(face.embedding);
+        if (stranger.vectors.length > 8) stranger.vectors.shift();
+      }
+    }
+    return stranger;
+  });
+}
+
+async function scanDemoFrame() {
+  const video = demo.video;
+  if (demo.busy || !video?.videoWidth) return;
+  demo.busy = true;
+  const began = performance.now();
+  try {
+    const w = Math.min(640, video.videoWidth);
+    const h = Math.round((w * video.videoHeight) / video.videoWidth);
+    const frame = document.createElement("canvas"); // the raw frame, without the burn-in text
+    frame.width = w;
+    frame.height = h;
+    frame.getContext("2d").drawImage(video, 0, 0, w, h);
+    const blob = await new Promise((resolve) => frame.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || !demo.stream) return;
+    const form = new FormData();
+    form.append("image", new File([blob], "frame.jpg", { type: "image/jpeg" }));
+
+    let result;
+    try {
+      result = await apiRequest(`/face-profiles/${currentUser.id}/verify-frame`, { method: "POST", body: form });
+    } catch (error) {
+      if (error.status === 401) return;
+      demo.unknownStreak = 0;
+      demo.faces = [];
+      demo.overlay = "Camera check failed";
+      $("#demoStatus").textContent = error.message;
+      return;
+    }
+    if (!demo.stream) return; // stopped while waiting for the answer
+
+    const seconds = ((performance.now() - began) / 1000).toFixed(1);
+    const faces = Array.isArray(result?.faces) ? result.faces : [];
+    const pct = (f) => (Number.isFinite(f.best_similarity) ? ` ${Math.round(f.best_similarity * 100)}%` : "");
+    const known = faces.filter((f) => f.identity_verified === true && f.matched_profile?.display_name);
+    const unknown = faces.filter((f) => !known.includes(f));
+    const strangerOf = new Map();
+    assignStrangers(unknown).forEach((stranger, i) => strangerOf.set(unknown[i], stranger));
+
+    // Boxes for the picture (kept for a moment, then they fade if no new check arrives).
+    demo.faceW = result?.image_width || 0;
+    demo.faceH = result?.image_height || 0;
+    demo.facesAt = Date.now();
+    demo.faces = faces.map((f) => {
+      const isKnown = known.includes(f);
+      return { box: f.bbox, known: isKnown, label: isKnown ? `${f.matched_profile.display_name}${pct(f)}` : `Unknown ${strangerOf.get(f).no}` };
+    });
+
+    if (!faces.length) {
+      demo.overlay = "No face in view";
+      $("#demoStatus").textContent = `No face in view (${seconds}s)`;
+      await updatePresence(new Map()); // nobody seen: lets departures be noticed
+      return;
+    }
+
+    const parts = [...known.map((f) => `${f.matched_profile.display_name}${pct(f)}`)];
+    for (const f of unknown) parts.push(`Unknown ${strangerOf.get(f).no}`);
+    let note = `${faces.length} face${faces.length === 1 ? "" : "s"}: ${parts.join(", ")}.`;
+    const why = unknown[0]?.verification_reason;
+    if (why === "no_eligible_candidate") note += " Nobody is enrolled yet. Add faces on the Known people page.";
+    else if (why === "ambiguous_candidates") note += " A face matches two profiles almost equally. Delete duplicate profiles in Known people.";
+    $("#demoStatus").textContent = `${note} (${seconds}s)`;
+    demo.overlay = parts.join(" · ");
+
+    // Who is in view right now? Recognised people, and every stranger (each with their own number).
+    const seen = new Map();
+    for (const f of known) seen.set(f.matched_profile.display_name, f.best_similarity);
+    for (const f of unknown) {
+      const stranger = strangerOf.get(f);
+      const label = `Unknown person ${stranger.no}`;
+      if (stranger.hits >= STRANGER_CONFIRM_CHECKS || demo.present.has(label)) {
+        seen.set(label, Number.isFinite(f.best_similarity) ? f.best_similarity : null);
+      }
+    }
+    await updatePresence(seen);
+  } finally {
+    demo.busy = false;
+  }
+}
+
+// Sends the next frame as soon as the previous answer is back (no fixed wait).
+async function demoScanLoop(session) {
+  while (demo.stream && demo.session === session) {
+    const began = Date.now();
+    await scanDemoFrame();
+    await new Promise((resolve) => setTimeout(resolve, Math.max(100, SCAN_MIN_GAP_MS - (Date.now() - began))));
+  }
+}
+
+async function startDemoCamera() {
+  const status = $("#demoStatus");
+  if (demo.stream) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    status.textContent = "This browser can't use the webcam here. Open the dashboard from localhost or HTTPS.";
+    return;
+  }
+  $("#demoStartBtn").disabled = true;
+  stopLiveCamera(); // free the Known people webcam if it was on
+  try {
+    status.textContent = "Starting camera…";
+    demo.camera = await ensureDemoCamera();
+    demo.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = demo.stream;
+    await video.play();
+    demo.video = video;
+    demo.session = Date.now().toString(36);
+    demo.present = new Map();
+    demo.pendingLeaves = [];
+    demo.strangers = [];
+    demo.strangerNo = 0;
+    demo.savedHours = new Set();
+    demo.lastError = "";
+    $("#demoSaveNote").textContent = "";
+    demo.counter = 0;
+    demo.unknownStreak = 0;
+    demo.faces = [];
+    demo.overlay = "Checking face…";
+    drawDemoFrame();
+    startDemoRecorder();
+    flushUploads(); // retry anything an earlier session could not upload
+    demo.drawTimer = setInterval(drawDemoFrame, 66);
+    demoScanLoop(demo.session); // first check starts immediately
+    demo.limitTimer = setTimeout(() => stopDemoCamera(), MAX_SESSION_MS);
+    $("#demoOff").classList.add("hidden");
+    $("#demoRec").classList.remove("hidden");
+    $("#demoWarn")?.classList.remove("hidden");
+    $("#demoStopBtn").disabled = false;
+    $("#notificationBtn").classList.add("is-live");
+    syncCameraViews(); // cards switch to LIVE immediately
+    status.textContent = "Camera is live and recording. Step into view to be detected.";
+    await setCameraStatus(demo.camera.id, "online");
+    await reloadCameras();
+  } catch (error) {
+    demo.stream?.getTracks().forEach((t) => t.stop());
+    demo.stream = null;
+    clearInterval(demo.drawTimer);
+    clearInterval(demo.scanTimer);
+    clearTimeout(demo.limitTimer);
+    clearTimeout(demo.segTimer);
+    demo.recStream = null;
+    $("#demoStartBtn").disabled = false;
+    status.textContent = `Could not start the camera: ${error.message}`;
+  }
+}
+
+async function stopDemoCamera({ save = true } = {}) {
+  if (!demo.stream) return;
+  clearInterval(demo.drawTimer);
+  clearInterval(demo.scanTimer);
+  clearTimeout(demo.limitTimer);
+  clearTimeout(demo.segTimer);
+  const recorder = demo.recorder;
+  const endedAt = Date.now();
+  const blob = await finishRecorder(recorder);
+  demo.stream.getTracks().forEach((t) => t.stop());
+  demo.recStream?.getTracks().forEach((t) => t.stop());
+  demo.recStream = null;
+  demo.stream = null;
+  demo.video = null;
+  demo.recorder = null;
+  demo.faces = [];
+  demo.strangers = []; // stranger face data is kept in memory only while the camera runs
+  $("#demoOff").classList.remove("hidden");
+  $("#demoRec").classList.add("hidden");
+  $("#demoWarn")?.classList.add("hidden");
+  $("#demoSaveNote").textContent = "";
+  $("#demoStartBtn").disabled = false;
+  $("#demoStopBtn").disabled = true;
+  $("#notificationBtn").classList.remove("is-live");
+  syncCameraViews(); // cards switch to OFFLINE immediately, before any upload finishes
+  if (authToken && demo.camera) await closeOpenVisits();
+  if (!save) {
+    // Discarded: this last piece is dropped (earlier auto-saved pieces stay in the archive).
+    if (authToken && demo.camera) {
+      try {
+        await setCameraStatus(demo.camera.id, "offline");
+        await reloadCameras();
+      } catch {}
+    }
+    return;
+  }
+
+  const camera = demo.camera;
+  const status = $("#demoStatus");
+  status.textContent = "Saving the recording…";
+  await queueUpload(blob, endedAt, recorder?.startedAt ?? endedAt);
+  if (demo.pending.length) {
+    status.textContent = `Part of the recording was not saved: ${demo.lastError}. It will be retried next time you start or stop the camera.`;
+  } else if (demo.savedHours.size) {
+    const hours = [...demo.savedHours].sort((x, y) => x - y).map(hourText).join(", ");
+    status.textContent = `Saved to the Recording archive (${hours}).`;
+    showToast(`Recording saved to the archive (${hours}).`);
+  } else {
+    status.textContent = "Camera stopped (nothing was recorded).";
+  }
+  try {
+    await setCameraStatus(camera.id, "offline");
+    await reloadCameras();
+  } catch {}
+  loadRecordingCount();
+  loadBackendEvents({ silent: true });
+  if ($("#page-recordings").classList.contains("active")) renderHours();
+}
+
+/* ---- simulator panel: open/close, tabs, manual events ---- */
+async function openDemoDock() {
+  $("#demoDock").classList.remove("hidden");
+  const mine = cameras.map((c) => `<option value="${c.id}">${escapeHtml(c.name)} · ${escapeHtml(c.siteName)}</option>`).join("");
+  const hasDemo = cameras.some((c) => c.name === DEMO_CAMERA);
+  $("#demoEventCamera").innerHTML = (hasDemo ? "" : `<option value="demo">${DEMO_CAMERA} (created for you)</option>`) + mine;
+  const now = new Date();
+  $("#demoEventTime").value = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}T${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  try {
+    if (!knownPeople.length) {
+      const data = await apiRequest(`/face-profiles/${currentUser.id}`);
+      knownPeople = Array.isArray(data) ? data : Array.isArray(data?.profiles) ? data.profiles : [];
+    }
+  } catch {}
+  $("#demoPeople").innerHTML = knownPeople.map((p) => `<option value="${escapeHtml(p.display_name || "")}"></option>`).join("");
+}
+
+// Leaving the simulator while recording stops the camera WITHOUT saving; make that explicit.
+function confirmLeaveRecording() {
+  if (!demo.stream) return true;
+  const leave = window.confirm(
+    "Recording is still running.\n\n" +
+      "If you leave now, the recording will be STOPPED and the footage since the last auto-save (at most 10 minutes) will NOT be saved to the archive.\n" +
+      "To keep it, press Cancel and click “Stop & save”.\n\n" +
+      "Leave and discard it?",
+  );
+  if (!leave) return false;
+  stopDemoCamera({ save: false });
+  return true;
+}
+
+function closeDemoDock() {
+  if (!confirmLeaveRecording()) return;
+  $("#demoDock").classList.add("hidden");
+}
+
+function setDemoTab(tab) {
+  if (tab === "event" && !confirmLeaveRecording()) return;
+  $$("[data-demo-tab]").forEach((b) => b.classList.toggle("active", b.dataset.demoTab === tab));
+  $("#demoLive").classList.toggle("hidden", tab !== "live");
+  $("#demoEventForm").classList.toggle("hidden", tab !== "event");
+}
+
+async function addManualEvent(e) {
+  e.preventDefault();
+  const message = $("#demoEventMsg");
+  const button = $("#demoEventForm button[type='submit']");
+  button.disabled = true;
+  message.textContent = "";
+  try {
+    let cameraId = $("#demoEventCamera").value;
+    if (cameraId === "demo") cameraId = (await ensureDemoCamera()).id;
+    const confidence = $("#demoEventConf").value;
+    const when = $("#demoEventTime").value;
+    await apiRequest(
+      `/cameras/${cameraId}/events`,
+      postJson({
+        event_type: $("#demoEventType").value,
+        person_label: $("#demoEventPerson").value.trim() || "Unknown person",
+        confidence: confidence === "" ? null : Math.min(100, Math.max(0, Number(confidence))) / 100,
+        details: $("#demoEventDetails").value.trim() || "Added manually from the camera simulator.",
+        timestamp: when ? new Date(when).toISOString() : null,
+      }),
+    );
+    message.textContent = "Event added. It now appears on Events & timeline and in the stats.";
+    $("#demoEventDetails").value = "";
+    await loadBackendEvents({ silent: true });
+    await openDemoDock(); // refresh the camera list (the demo camera may be new) and the time
+  } catch (error) {
+    message.textContent = `Could not add the event: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function init() {
@@ -1104,6 +1822,13 @@ function init() {
     const row = e.target.closest(".hour-row");
     if (row) selectHour(Number(row.dataset.hour));
   });
+  $("#deleteRecordingBtn").addEventListener("click", openDeleteRecording);
+  $("#modalContent").addEventListener("submit", (e) => {
+    const form = e.target.closest("#deleteRecordingForm");
+    if (!form) return;
+    e.preventDefault();
+    submitDeleteRecording(form);
+  });
   $("#downloadInfoBtn").addEventListener("click", () => {
     const h = archiveHours[selectedHour];
     const recording = h?.recordings?.[0];
@@ -1195,9 +1920,20 @@ function init() {
       "<p>This is a frontend prototype. For setup help, review the README included with the project files.</p>",
     ),
   );
-  $("#notificationBtn").addEventListener("click", () =>
-    showToast("You’re all caught up in this demo."),
-  );
+  $("#notificationBtn").addEventListener("click", () => {
+    if ($("#demoDock").classList.contains("hidden")) openDemoDock();
+    else closeDemoDock();
+  });
+  $("#demoCloseBtn").addEventListener("click", closeDemoDock);
+  $$("[data-demo-tab]").forEach((b) => b.addEventListener("click", () => setDemoTab(b.dataset.demoTab)));
+  $("#demoStartBtn").addEventListener("click", startDemoCamera);
+  window.addEventListener("beforeunload", (event) => {
+    if (!demo.stream) return;
+    event.preventDefault(); // browser shows its own "leave site?" prompt
+    event.returnValue = "";
+  });
+  $("#demoStopBtn").addEventListener("click", () => stopDemoCamera());
+  $("#demoEventForm").addEventListener("submit", addManualEvent);
   $("#knownPeopleList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-profile]");
     if (!button) return;
@@ -1219,7 +1955,9 @@ function init() {
   const saved = readJson("sentinel-session", null);
   if (saved?.token) {
     authToken = saved.token;
-    apiRequest("/auth/me").then(showApp).catch(() => endSession());
+    const remembered = sessionStorage.getItem("sentinel-page");
+    const startPage = remembered && $(`#page-${remembered}`) ? remembered : "overview";
+    apiRequest("/auth/me").then((user) => showApp(user, startPage)).catch(() => endSession());
   }
 
 

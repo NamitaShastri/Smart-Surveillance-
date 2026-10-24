@@ -9,7 +9,7 @@ import time
 
 from fastapi import HTTPException
 
-# Set SENTINEL_SECRET_KEY in your environment so tokens survive restarts.  EE3T_bT6Uxxv9g2RwUQTvf1L-hvUaGRCP55cin269G5tGk5uglKCKbHVK0ZSVOHD    2nd value =OkmVGyR5d9VvkonV9wykJ0d1LqoUzmHCCaQlUYMf_2FjVDYvjbRj4rq7Uep5b6WN 
+# Set SENTINEL_SECRET_KEY in your environment so tokens survive restarts.  
 SECRET_KEY = os.environ.get("SENTINEL_SECRET_KEY") or secrets.token_urlsafe(48)
 if not os.environ.get("SENTINEL_SECRET_KEY"):
     print("WARNING: SENTINEL_SECRET_KEY is not set; sign-ins reset whenever the server restarts.")

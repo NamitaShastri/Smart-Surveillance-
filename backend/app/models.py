@@ -170,3 +170,25 @@ class FaceSample(Base):
     )
 
     profile = relationship("FaceProfile", back_populates="samples")
+
+
+class RecordingDeletion(Base):
+    """Audit log: who deleted which recording, when, and why.
+
+    No foreign keys on purpose, so the log survives if a camera or user is removed.
+    """
+
+    __tablename__ = "recording_deletions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    reason = Column(String(300), nullable=False)
+    size_bytes = Column(Integer, nullable=True)
+    deleted_by = Column(Integer, nullable=False, index=True)
+
+    deleted_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
